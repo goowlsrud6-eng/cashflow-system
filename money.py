@@ -30,7 +30,7 @@ def load_all_data(file):
     try:
         xls = pd.ExcelFile(file)
         
-        # 1. 다이렉트
+        # 1. 다이렉트 (Direct)
         if '다이렉트' in xls.sheet_names:
             df_d = pd.read_excel(xls, sheet_name='다이렉트')
             df_d.columns = df_d.columns.str.strip()
@@ -45,24 +45,47 @@ def load_all_data(file):
         else:
             df_d = pd.DataFrame()
 
-        # 2. YIWU
+        # 2. YIWU (수수료 로직 추가됨)
         if 'YIWU' in xls.sheet_names:
             df_y = pd.read_excel(xls, sheet_name='YIWU')
             df_y.columns = df_y.columns.str.strip()
+            
+            # 잔금 컬럼명 통일
             if '잔금' in df_y.columns and '잔금_금액' not in df_y.columns:
                 df_y.rename(columns={'잔금': '잔금_금액'}, inplace=True)
+            
+            # 금액 숫자 변환
             if '잔금_금액' in df_y.columns:
                 df_y['잔금_금액'] = df_y['잔금_금액'].apply(clean_currency).fillna(0)
+                
+                # ⭐ [NEW] 수수료 6% 자동 계산 로직 ⭐
+                # '수수료'라는 글자가 포함된 컬럼이 있는지 찾음 (예: 수수료, 수수료구분 등)
+                comm_col = next((c for c in df_y.columns if '수수료' in str(c)), None)
+                
+                if comm_col:
+                    def apply_fee(row):
+                        val = row['잔금_금액']
+                        status = str(row[comm_col])
+                        # '별도'라는 말이 있으면 1.06배 (6% 추가)
+                        if '별도' in status:
+                            return val * 1.06
+                        return val
+                    
+                    # 원본 금액 보존하고 싶으면 다른 컬럼에 저장해도 되지만, 
+                    # 자금 계산을 위해 '잔금_금액' 자체를 업데이트함
+                    df_y['잔금_금액'] = df_y.apply(apply_fee, axis=1)
+
             if '잔금_날짜' in df_y.columns:
                 df_y['잔금_날짜'] = pd.to_datetime(df_y['잔금_날짜'], errors='coerce')
         else:
             df_y = pd.DataFrame()
 
-        # 3. 송금내역 (YIWU)
+        # 3. 송금내역 (YIWU 잔고 확인)
         yiwu_balance = 0.0
         df_l = pd.DataFrame()
         target_sheet = '송금내역 (YIWU)'
         
+        # 시트 이름이 조금 달라도 찾도록 처리
         if target_sheet not in xls.sheet_names:
              for sheet in xls.sheet_names:
                  if '송금' in sheet and 'YIWU' in sheet:
@@ -71,6 +94,7 @@ def load_all_data(file):
         
         if target_sheet in xls.sheet_names:
             df_l = pd.read_excel(xls, sheet_name=target_sheet)
+            # 헤더가 2번째 줄에 있는 경우 처리
             col_str = str(list(df_l.columns))
             if '잔고' not in col_str:
                  df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
@@ -94,6 +118,7 @@ def load_all_data(file):
         return df_d, df_y, yiwu_balance, df_l
 
     except Exception as e:
+        st.error(f"데이터 로드 중 오류 발생: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0.0, pd.DataFrame()
 
 def get_date_range(today):
@@ -130,10 +155,10 @@ with st.sidebar:
     menu = st.radio("화면 이동", ["📊 전체 자금 현황", "🟩 다이렉트 관리", "🟦 이우(YIWU) 관리"])
     
     st.markdown("---")
-    uploaded_file = st.file_uploader("📂 통합 엑셀 파일", type=['xlsx'])
+    uploaded_file = st.file_uploader("📂 통합 엑셀 파일 업로드", type=['xlsx'])
     
     st.markdown("---")
-    st.subheader("💱 환율")
+    st.subheader("💱 환율 설정")
     col_r1, col_r2 = st.columns(2)
     with col_r1: rate_cny = st.number_input("1 CNY (원)", value=195.0, format="%.2f")
     with col_r2: rate_usd = st.number_input("1 USD (원)", value=1400.0, format="%.2f")
@@ -142,8 +167,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("💼 내 통장 보유액 (차감용)")
-    my_cny = st.number_input("CNY 보유액", value=0.0, step=100.0, help="전체 현황의 최종 필요액 계산 시 차감됩니다.")
-    my_usd = st.number_input("USD 보유액", value=0.0, step=100.0, help="전체 현황의 최종 필요액 계산 시 차감됩니다.")
+    my_cny = st.number_input("CNY 보유액", value=0.0, step=100.0)
+    my_usd = st.number_input("USD 보유액", value=0.0, step=100.0)
     
     st.markdown("---")
     today = pd.Timestamp.now().normalize()
@@ -155,7 +180,7 @@ with st.sidebar:
 if uploaded_file:
     df_d, df_y, yiwu_balance, df_l = load_all_data(uploaded_file)
     
-    # 필터링
+    # 필터링: 완료되지 않은 건만 보기
     if '진행단계' in df_d.columns:
         df_d_active = df_d[~df_d['진행단계'].astype(str).str.contains('완료')].copy()
     else:
@@ -178,7 +203,7 @@ if uploaded_file:
     ]
 
     # =======================================================
-    # PAGE 1: 전체 자금 현황
+    # PAGE 1: 전체 자금 현황 (세분화 버전)
     # =======================================================
     if menu == "📊 전체 자금 현황":
         st.header("📊 기간별 자금 흐름 요약")
@@ -198,7 +223,7 @@ if uploaded_file:
             # Direct CNY (순수 CNY)
             gross_d_cny = d_direct_rows[d_direct_rows['화폐단위']=='CNY']['잔금_금액'].sum()
             
-            # YIWU
+            # YIWU (수수료 적용된 금액 합계)
             gross_y_expense_cny = df_yiwu_sub['잔금_금액'].sum()
             
             return gross_d_cny, gross_d_usd, gross_y_expense_cny
@@ -227,9 +252,9 @@ if uploaded_file:
             result_rows.append({
                 "기간": label,
                 "🟩 다이렉트(CNY)": fmt_num(g_d_cny),
-                "🟩 (KRW환산)": fmt_krw(krw_d_cny), # 다이렉트 CNY의 KRW
+                "🟩 (KRW환산)": fmt_krw(krw_d_cny),
                 "🟩 다이렉트(USD)": fmt_num(g_d_usd),
-                "🟩 (KRW환산) ": fmt_krw(krw_d_usd), # 다이렉트 USD의 KRW (공백으로 구분)
+                "🟩 (KRW환산) ": fmt_krw(krw_d_usd),
                 "🟦 이우(CNY)": fmt_num(g_y_cny),
                 "🟦 (USD환산)": fmt_num(usd_y),
                 "🟦 (KRW환산)": fmt_krw(krw_y),
@@ -237,6 +262,7 @@ if uploaded_file:
             })
             
         st.dataframe(pd.DataFrame(result_rows), hide_index=True, use_container_width=True)
+        st.caption("※ '이우(CNY)' 금액은 수수료 '별도'인 품목의 경우 6% 가산된 금액입니다.")
         st.markdown("---")
 
         # 1-2. 지정 기간 & 잔고 차감
@@ -249,12 +275,17 @@ if uploaded_file:
             
             bill_d_cny, bill_d_usd, bill_y_cny = calculate_needs(df_d_active[m_d], df_y_active[m_y])
             
+            # 이우: 지출예정액 - 장부잔고
             yiwu_shortage_cny = max(bill_y_cny - yiwu_balance, 0)
             yiwu_shortage_usd = yiwu_shortage_cny * cny_to_usd_rate
             
+            # 다이렉트 CNY 필요액 - 내 통장 CNY
             final_cny_need = max(bill_d_cny - my_cny, 0)
+            
+            # 다이렉트 USD 필요액 + 이우 부족분(USD환산) - 내 통장 USD
             total_usd_need = bill_d_usd + yiwu_shortage_usd
             final_usd_need = max(total_usd_need - my_usd, 0)
+            
             final_krw = (final_cny_need * rate_cny) + (final_usd_need * rate_usd)
             
             c1, c2, c3 = st.columns(3)
@@ -320,17 +351,6 @@ if uploaded_file:
         if '잔금_날짜' in df_disp.columns: df_disp['잔금_날짜'] = df_disp['잔금_날짜'].dt.strftime('%Y-%m-%d')
         
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
-        
-        # 합계
-        t_cny = df_view[df_view['화폐단위']=='CNY']['잔금_금액'].sum()
-        t_usd = df_view[df_view['화폐단위']=='USD']['잔금_금액'].sum()
-        t_krw = df_view['🇰🇷 예상 KRW'].sum()
-        
-        st.markdown("---")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("CNY 합계", fmt_num(t_cny))
-        c2.metric("USD 합계", fmt_num(t_usd))
-        c3.metric("KRW 총 환산", fmt_krw(t_krw))
 
     # =======================================================
     # PAGE 3: 이우 관리
@@ -359,7 +379,7 @@ if uploaded_file:
         st.markdown("---")
         
         # 3-2. 상세 리스트 (위)
-        st.subheader("📋 지출 예정 상세")
+        st.subheader("📋 지출 예정 상세 (수수료 포함 계산됨)")
         k_y = st.text_input("🔍 품목 검색", key='sy')
         df_y_view = df_y_active.copy()
         if k_y: df_y_view = df_y_view[df_y_view['품목'].astype(str).str.contains(k_y, case=False)]
@@ -370,8 +390,14 @@ if uploaded_file:
         df_y_view = df_y_view.sort_values('잔금_날짜')
         df_y_view['🇰🇷 예상 KRW'] = df_y_view['잔금_금액'] * rate_cny
         
-        cols = ['잔금_날짜', '품목', '총_발주금액', '잔금_금액', '🇰🇷 예상 KRW', '진행단계']
-        valid_cols = [c for c in cols if c in df_y_view.columns]
+        # 표시할 컬럼 (수수료 열이 있으면 보여줌)
+        base_cols = ['잔금_날짜', '품목', '총_발주금액', '잔금_금액', '🇰🇷 예상 KRW', '진행단계']
+        # '수수료' 컬럼이 있으면 리스트에 추가
+        comm_col = next((c for c in df_y_view.columns if '수수료' in str(c)), None)
+        if comm_col:
+            base_cols.insert(2, comm_col)
+
+        valid_cols = [c for c in base_cols if c in df_y_view.columns]
         df_disp = df_y_view[valid_cols].copy()
         
         for c in ['총_발주금액', '잔금_금액']: 
@@ -383,7 +409,7 @@ if uploaded_file:
         
         ty_cny = df_y_view['잔금_금액'].sum()
         ty_krw = df_y_view['🇰🇷 예상 KRW'].sum()
-        st.info(f"합계: **{fmt_num(ty_cny)} CNY** (≈ {fmt_krw(ty_krw)} KRW)")
+        st.info(f"합계(수수료 포함): **{fmt_num(ty_cny)} CNY** (≈ {fmt_krw(ty_krw)} KRW)")
 
         st.markdown("---")
 
@@ -398,4 +424,4 @@ if uploaded_file:
             st.dataframe(df_l_sort, hide_index=True, use_container_width=True)
 
 else:
-    st.info("👈 엑셀 파일을 업로드해주세요.")
+    st.info("👈 왼쪽 사이드바에서 엑셀 파일을 업로드해주세요.")
