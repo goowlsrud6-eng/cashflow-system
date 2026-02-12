@@ -140,9 +140,8 @@ def get_date_range(today):
 # -----------------------------------------------------------
 with st.sidebar:
     st.title("⚙️ 자금 설정")
-    st.success("✅ Ver.35 적용완료 (메뉴명 통일)")
+    st.success("✅ Ver.36 적용완료 (표 옆 잔고표시)")
     
-    # ⭐ 메뉴 이름 변경 (이모지 제거)
     menu = st.radio("화면 이동", 
         ["📊 전체 자금 현황", "다이렉트 (CNY)", "다이렉트 (USD)", "이우 (YIWU)"])
     
@@ -203,6 +202,7 @@ if uploaded_file:
     if menu == "📊 전체 자금 현황":
         st.header("📊 전체 자금 현황 대시보드")
         
+        # 상단 큰 글씨도 유지 (원하시면 삭제 가능)
         c1, c2, c3 = st.columns(3)
         c1.metric("내 CNY 잔고", fmt_num(my_cny))
         c2.metric("내 USD 잔고", fmt_num(my_usd))
@@ -211,9 +211,12 @@ if uploaded_file:
         st.markdown("---")
 
         # 1. 다이렉트 CNY 표
-        st.subheader("1️⃣ 다이렉트 (CNY) 현황")
-        df_cny_only, _ = split_direct_data(df_d_active)
+        # 제목 옆에 잔고 표시 (columns 사용)
+        c_h, c_b = st.columns([5, 2])
+        with c_h: st.subheader("1️⃣ 다이렉트 (CNY) 현황")
+        with c_b: st.markdown(f"**💰 내 CNY 잔고:** :green[{fmt_num(my_cny)}]")
         
+        df_cny_only, _ = split_direct_data(df_d_active)
         rows_cny = []
         for label, s, e in periods:
             if s and e: sub = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)]
@@ -233,9 +236,11 @@ if uploaded_file:
         st.markdown("---")
 
         # 2. 다이렉트 USD 표
-        st.subheader("2️⃣ 다이렉트 (USD) 현황")
+        c_h, c_b = st.columns([5, 2])
+        with c_h: st.subheader("2️⃣ 다이렉트 (USD) 현황")
+        with c_b: st.markdown(f"**💰 내 USD 잔고:** :green[{fmt_num(my_usd)}]")
+
         _, df_usd_only = split_direct_data(df_d_active)
-        
         rows_usd = []
         for label, s, e in periods:
             if s and e: sub = df_usd_only[(df_usd_only['잔금_날짜'] >= s) & (df_usd_only['잔금_날짜'] <= e)]
@@ -258,7 +263,10 @@ if uploaded_file:
         st.markdown("---")
 
         # 3. 이우 표
-        st.subheader("3️⃣ 이우 (YIWU) 현황")
+        c_h, c_b1, c_b2 = st.columns([4, 2, 2])
+        with c_h: st.subheader("3️⃣ 이우 (YIWU) 현황")
+        with c_b1: st.markdown(f"**📒 장부 잔고:** :blue[{fmt_num(yiwu_balance)}]")
+        with c_b2: st.markdown(f"**💰 내 USD 잔고:** :green[{fmt_num(my_usd)}]")
         
         rows_yiwu = []
         for label, s, e in periods:
