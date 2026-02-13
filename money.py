@@ -108,6 +108,7 @@ def load_all_data(file):
             df_ex = pd.read_excel(xls, sheet_name='환전내역')
             df_ex.columns = df_ex.columns.str.strip()
             
+            # 날짜 표준화
             date_col = next((c for c in df_ex.columns if '날짜' in str(c) or '일자' in str(c)), None)
             if date_col: 
                 df_ex['날짜'] = pd.to_datetime(df_ex[date_col], errors='coerce')
@@ -173,9 +174,8 @@ def split_direct_data(df):
 # -----------------------------------------------------------
 with st.sidebar:
     st.title("⚙️ 자금 설정")
-    # 성공 메시지 삭제됨
     
-    # 메뉴 아이콘(이모지) 제거됨
+    # 깔끔하게 텍스트 메뉴만
     menu = st.radio("화면 이동", 
         ["전체 자금 현황", "다이렉트 (CNY)", "다이렉트 (USD)", "이우 (YIWU)", "환전 내역"])
     
@@ -313,6 +313,9 @@ if uploaded_file:
             
             tab1, tab2 = st.tabs(["🇨🇳 CNY 환전", "🇺🇸 USD 환전"])
             
+            # [공통] 보여줄 컬럼 정의
+            cols_to_show = ['날짜', '화폐', '환전금액', '환율', '원화금액']
+            
             with tab1:
                 st.subheader("🇨🇳 CNY 환전 내역")
                 if not df_cny_ex.empty:
@@ -327,14 +330,17 @@ if uploaded_file:
                     c2.metric("총 사용 원화", fmt_krw(total_krw))
                     c3.metric("평균 환율", fmt_num(avg_rate))
                     
-                    df_cny_disp['환전금액'] = df_cny_disp['환전금액'].apply(fmt_num)
-                    df_cny_disp['환율'] = df_cny_disp['환율'].apply(fmt_num)
-                    df_cny_disp['원화금액'] = df_cny_disp['원화금액'].apply(fmt_krw)
-                    # [날짜 시분초 제거]
-                    if '날짜' in df_cny_disp.columns: 
-                        df_cny_disp['날짜'] = df_cny_disp['날짜'].dt.strftime('%Y-%m-%d')
+                    # 1. 컬럼 필터링 (불필요한 열 제거)
+                    valid_cols = [c for c in cols_to_show if c in df_cny_disp.columns]
+                    df_show = df_cny_disp[valid_cols].copy()
                     
-                    st.dataframe(df_cny_disp, hide_index=True, use_container_width=True)
+                    # 2. 포맷팅
+                    if '환전금액' in df_show.columns: df_show['환전금액'] = df_show['환전금액'].apply(fmt_num)
+                    if '환율' in df_show.columns: df_show['환율'] = df_show['환율'].apply(fmt_num)
+                    if '원화금액' in df_show.columns: df_show['원화금액'] = df_show['원화금액'].apply(fmt_krw)
+                    if '날짜' in df_show.columns: df_show['날짜'] = df_show['날짜'].dt.strftime('%Y-%m-%d')
+                    
+                    st.dataframe(df_show, hide_index=True, use_container_width=True)
                 else:
                     st.info("CNY 환전 내역이 없습니다.")
             
@@ -352,14 +358,17 @@ if uploaded_file:
                     c2.metric("총 사용 원화", fmt_krw(total_krw))
                     c3.metric("평균 환율", fmt_num(avg_rate))
                     
-                    df_usd_disp['환전금액'] = df_usd_disp['환전금액'].apply(fmt_num)
-                    df_usd_disp['환율'] = df_usd_disp['환율'].apply(fmt_num)
-                    df_usd_disp['원화금액'] = df_usd_disp['원화금액'].apply(fmt_krw)
-                    # [날짜 시분초 제거]
-                    if '날짜' in df_usd_disp.columns: 
-                        df_usd_disp['날짜'] = df_usd_disp['날짜'].dt.strftime('%Y-%m-%d')
+                    # 1. 컬럼 필터링
+                    valid_cols = [c for c in cols_to_show if c in df_usd_disp.columns]
+                    df_show = df_usd_disp[valid_cols].copy()
                     
-                    st.dataframe(df_usd_disp, hide_index=True, use_container_width=True)
+                    # 2. 포맷팅
+                    if '환전금액' in df_show.columns: df_show['환전금액'] = df_show['환전금액'].apply(fmt_num)
+                    if '환율' in df_show.columns: df_show['환율'] = df_show['환율'].apply(fmt_num)
+                    if '원화금액' in df_show.columns: df_show['원화금액'] = df_show['원화금액'].apply(fmt_krw)
+                    if '날짜' in df_show.columns: df_show['날짜'] = df_show['날짜'].dt.strftime('%Y-%m-%d')
+                    
+                    st.dataframe(df_show, hide_index=True, use_container_width=True)
                 else:
                     st.info("USD 환전 내역이 없습니다.")
 
@@ -388,7 +397,6 @@ if uploaded_file:
         st.markdown("---")
         st.subheader("📋 상세 내역")
         
-        # [날짜 시분초 제거 로직 추가]
         df_disp = df_view[['잔금_날짜','품목','거래처','잔금_금액','진행단계']].sort_values('잔금_날짜').copy()
         if '잔금_날짜' in df_disp.columns:
             df_disp['잔금_날짜'] = df_disp['잔금_날짜'].dt.strftime('%Y-%m-%d')
@@ -417,7 +425,6 @@ if uploaded_file:
         st.markdown("---")
         st.subheader("📋 상세 내역")
         
-        # [날짜 시분초 제거 로직 추가]
         df_disp = df_view[['잔금_날짜','품목','거래처','잔금_금액','화폐단위','진행단계']].sort_values('잔금_날짜').copy()
         if '잔금_날짜' in df_disp.columns:
             df_disp['잔금_날짜'] = df_disp['잔금_날짜'].dt.strftime('%Y-%m-%d')
@@ -453,8 +460,11 @@ if uploaded_file:
         disp = df_disp[valid].copy()
         for c in ['총_발주금액', '잔금_금액']: 
             if c in disp.columns: disp[c] = disp[c].apply(fmt_num)
-        # [이미 적용되어 있던 날짜 포맷]
-        if '잔금_날짜' in disp.columns: disp['잔금_날짜'] = disp['잔금_날짜'].dt.strftime('%Y-%m-%d')
+        
+        # [날짜 시분초 제거]
+        if '잔금_날짜' in disp.columns: 
+            disp['잔금_날짜'] = disp['잔금_날짜'].dt.strftime('%Y-%m-%d')
+            
         st.dataframe(disp, hide_index=True, use_container_width=True)
 
 else:
