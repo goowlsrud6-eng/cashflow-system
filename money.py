@@ -353,7 +353,6 @@ else:
             df_cny_ex = df_ex[df_ex['화폐'].astype(str).str.upper() == 'CNY'].copy()
             df_usd_ex = df_ex[df_ex['화폐'].astype(str).str.upper() == 'USD'].copy()
             
-            # ⭐ 탭 대신 좌우로 분할!
             col1, col2 = st.columns(2)
             
             with col1:
@@ -374,7 +373,6 @@ else:
                     show_cols = ['환전 일자', '외화금액(CNY)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_cny.columns]
                     
-                    # 좌우 분할이라 절반 너비를 차지하므로 use_container_width=True로 꽉 차게 둡니다
                     st.dataframe(disp_cny[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
                 else:
                     st.info("CNY 환전 내역이 없습니다.")
@@ -407,7 +405,7 @@ else:
     elif menu == "다이렉트 (CNY)":
         st.header("다이렉트 관리 (CNY)")
         c1, c2 = st.columns(2)
-        c1.metric("CNY 보유액 (자동)", fmt_num(my_cny), f"≈ {fmt_krw(my_cny * rate_cny)} 원")
+        c1.metric("CNY 보유액", fmt_num(my_cny), f"≈ {fmt_krw(my_cny * rate_cny)} 원")
         
         df_cny_only, _ = split_direct_data(df_d_active)
         df_view = df_cny_only.copy()
@@ -440,7 +438,7 @@ else:
     elif menu == "다이렉트 (USD)":
         st.header("다이렉트 관리 (USD)")
         c1, c2 = st.columns(2)
-        c1.metric("USD 보유액 (자동)", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
+        c1.metric("USD 보유액", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
         
         _, df_usd_only = split_direct_data(df_d_active)
         df_view = df_usd_only.copy()
@@ -480,7 +478,7 @@ else:
         st.header("이우(YIWU) 자금 관리")
         c1, c2 = st.columns(2)
         c1.metric("허사장님 물품대", fmt_num(yiwu_balance), f"≈ {fmt_krw(yiwu_balance * rate_cny)} 원")
-        c2.metric("USD 보유액 (자동)", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
+        c2.metric("USD 보유액", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
         
         rows = []
         for label, s, e in periods:
