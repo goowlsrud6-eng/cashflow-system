@@ -278,7 +278,6 @@ else:
         st.header("📊 전체 자금 현황 대시보드")
         
         c1, c2, c3 = st.columns(3)
-        # 상단 요약 카드: (자동) 제거하고 KRW 환산 금액 표시 적용!
         c1.metric("CNY 환전보유액", fmt_num(my_cny), f"≈ {fmt_krw(my_cny * rate_cny)} 원")
         c2.metric("USD 환전보유액", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
         c3.metric("허사장님 물품대", fmt_num(yiwu_balance), f"≈ {fmt_krw(yiwu_balance * rate_cny)} 원")
@@ -360,22 +359,21 @@ else:
                 if not df_cny_ex.empty:
                     disp_cny = df_cny_ex.copy()
                     
-                    # 날짜 형식 깔끔하게 (시/분/초 제거)
                     date_col = '일자' if '일자' in disp_cny.columns else '날짜'
                     if date_col in disp_cny.columns:
                         disp_cny['환전 일자'] = pd.to_datetime(disp_cny[date_col]).dt.strftime('%Y-%m-%d')
                     else:
                         disp_cny['환전 일자'] = ""
                         
-                    # 금액들 전부 포맷팅 (소수점 2자리 + 콤마)
                     disp_cny['외화금액(CNY)'] = disp_cny.get('외화금액', disp_cny.get('환전금액', 0)).apply(clean_currency).apply(fmt_num)
                     disp_cny['환율'] = disp_cny.get('환율', 0).apply(clean_currency).apply(fmt_num)
-                    disp_cny['원화금액(KRW)'] = disp_cny.get('원화금액', 0).apply(clean_currency).apply(fmt_num)
+                    disp_cny['원화금액(KRW)'] = disp_cny.get('원화금액', 0).apply(clean_currency).apply(fmt_krw)
                     
-                    # 요청하신 필요한 컬럼들만 남기기
                     show_cols = ['환전 일자', '외화금액(CNY)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_cny.columns]
-                    st.dataframe(disp_cny[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
+                    
+                    # ⭐ use_container_width=False 로 변경하여 과도하게 늘어나는 것 방지!
+                    st.dataframe(disp_cny[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=False)
                 else:
                     st.info("CNY 환전 내역이 없습니다.")
                     
@@ -384,22 +382,21 @@ else:
                 if not df_usd_ex.empty:
                     disp_usd = df_usd_ex.copy()
                     
-                    # 날짜 형식 깔끔하게 (시/분/초 제거)
                     date_col = '일자' if '일자' in disp_usd.columns else '날짜'
                     if date_col in disp_usd.columns:
                         disp_usd['환전 일자'] = pd.to_datetime(disp_usd[date_col]).dt.strftime('%Y-%m-%d')
                     else:
                         disp_usd['환전 일자'] = ""
                         
-                    # 금액들 전부 포맷팅 (소수점 2자리 + 콤마)
                     disp_usd['외화금액(USD)'] = disp_usd.get('외화금액', disp_usd.get('환전금액', 0)).apply(clean_currency).apply(fmt_num)
                     disp_usd['환율'] = disp_usd.get('환율', 0).apply(clean_currency).apply(fmt_num)
-                    disp_usd['원화금액(KRW)'] = disp_usd.get('원화금액', 0).apply(clean_currency).apply(fmt_num)
+                    disp_usd['원화금액(KRW)'] = disp_usd.get('원화금액', 0).apply(clean_currency).apply(fmt_krw)
                     
-                    # 요청하신 필요한 컬럼들만 남기기
                     show_cols = ['환전 일자', '외화금액(USD)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_usd.columns]
-                    st.dataframe(disp_usd[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
+                    
+                    # ⭐ use_container_width=False 로 변경!
+                    st.dataframe(disp_usd[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=False)
                 else:
                     st.info("USD 환전 내역이 없습니다.")
 
