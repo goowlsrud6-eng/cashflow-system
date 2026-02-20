@@ -106,29 +106,45 @@ def get_drive_data(url):
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
 
-# ⭐ 인베스팅닷컴 실시간 환율 스크래핑 (강력한 봇 차단 우회 시도)
-@st.cache_data(ttl=3600, show_spinner="💱 인베스팅닷컴 환율 정보를 불러오는 중입니다...")
+# ⭐ 인베스팅닷컴 + 네이버 금융 이중 안전장치 (실시간 환율)
+@st.cache_data(ttl=3600, show_spinner="💱 실시간 환율 정보를 불러오는 중입니다...")
 def get_live_exchange_rates():
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
     }
+    cny_rate, usd_rate = None, None
+    
+    # 1. 인베스팅닷컴 시도
     try:
-        # USD/KRW 가져오기
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
-        usd_match = re.search(r'data-test="instrument-price-last">([\d,.]+)<', usd_res.text)
-        usd_rate = float(usd_match.group(1).replace(',', '')) if usd_match else 1400.0
+        usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
+        if usd_match: usd_rate = float(usd_match.group(1).replace(',', ''))
         
-        # CNY/KRW 가져오기
         cny_res = requests.get("https://kr.investing.com/currencies/cny-krw", headers=headers, timeout=5)
-        cny_match = re.search(r'data-test="instrument-price-last">([\d,.]+)<', cny_res.text)
-        cny_rate = float(cny_match.group(1).replace(',', '')) if cny_match else 195.0
-        
-        return cny_rate, usd_rate
+        cny_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', cny_res.text)
+        if cny_match: cny_rate = float(cny_match.group(1).replace(',', ''))
     except:
-        # 인베스팅닷컴 방어벽에 차단될 경우 기본값 세팅 (차단 대비)
-        return 195.0, 1400.0
+        pass
+
+    # 2. 인베스팅닷컴이 막히면 자동으로 네이버 금융에서 가져오기 (이중 안전장치)
+    if not cny_rate or not usd_rate:
+        try:
+            url = "https://finance.naver.com/marketindex/exchangeList.naver"
+            res = requests.get(url, headers=headers, timeout=5)
+            res.encoding = 'euc-kr'
+            
+            if not usd_rate:
+                u_match = re.search(r'미국 USD.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
+                if u_match: usd_rate = float(u_match.group(1).replace(',', ''))
+            
+            if not cny_rate:
+                c_match = re.search(r'중국 CNY.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
+                if c_match: cny_rate = float(c_match.group(1).replace(',', ''))
+        except:
+            pass
+
+    # 3. 만약 둘 다 안 되면 기본값 셋팅
+    return cny_rate or 195.0, usd_rate or 1400.0
 
 # -----------------------------------------------------------
 # 3. 잔고 자동 계산 로직
@@ -198,7 +214,7 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # ⭐ 인베스팅닷컴 실시간 환율 적용
+    # ⭐ 실시간 환율 가져오기
     live_cny, live_usd = get_live_exchange_rates()
     
     col_r1, col_r2 = st.columns(2)
