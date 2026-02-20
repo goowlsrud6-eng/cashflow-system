@@ -166,9 +166,8 @@ def split_direct_data(df):
     return df[~mask_usd].copy(), df[mask_usd].copy()
 
 # -----------------------------------------------------------
-# 4. 사이드바 (구글 링크 고정, 군더더기 제거)
+# 4. 사이드바 (구글 링크 고정, 사용자 지정 기간 복구)
 # -----------------------------------------------------------
-# 👇 사장님이 주신 구글 드라이브 링크가 여기에 아예 고정되었습니다!
 FIXED_GDRIVE_URL = "https://docs.google.com/spreadsheets/d/1Sj1BNjMpBocCxTQV8OW_cK4-2-eClm2W/edit?usp=sharing&ouid=107636013985223863985&rtpof=true&sd=true"
 
 with st.sidebar:
@@ -176,7 +175,6 @@ with st.sidebar:
     menu = st.radio("화면 이동", ["전체 자금 현황", "다이렉트 (CNY)", "다이렉트 (USD)", "이우 (YIWU)", "환전 내역"])
     st.markdown("---")
     
-    # 대표님이 엑셀 데이터 수정 사항을 바로 보고 싶을 때 누르는 버튼
     if st.button("🔄 최신 데이터 불러오기"):
         st.cache_data.clear()
         st.success("데이터를 새로 불러옵니다!")
@@ -188,13 +186,16 @@ with st.sidebar:
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
-    # 초기 잔고 세팅(기준값)은 유지하되 닫아둡니다.
-    with st.expander("🛠️ 초기 잔고 기준점 세팅 (2/12 기준)"):
+    # 날짜 기간 설정 복구
+    today = pd.Timestamp.now().normalize()
+    custom_date = st.date_input("📅 사용자 지정 기간", (today, today + timedelta(days=14)))
+
+    st.markdown("---")
+    # 초기 잔고 세팅을 맨 아래로 배치 및 이모지 제거
+    with st.expander("초기 잔고 기준점 세팅"):
         base_date = st.date_input("기준 날짜", value=pd.to_datetime("2026-02-12"))
         base_cny = st.number_input("초기 CNY", value=436013.34)
         base_usd = st.number_input("초기 USD", value=62785.86)
-        
-    today = pd.Timestamp.now().normalize()
 
 # -----------------------------------------------------------
 # 5. 화면 로직
@@ -227,6 +228,10 @@ else:
         ("5. 다음달", dates['next_month'][0], dates['next_month'][1]),
         ("6. 이번달+다음달", dates['this_plus_next_month'][0], dates['this_plus_next_month'][1]),
     ]
+    
+    # 사용자 지정 기간을 요약표에 추가 (날짜를 2개 다 선택했을 경우에만)
+    if len(custom_date) == 2:
+        periods.append(("7. 사용자 지정", pd.to_datetime(custom_date[0]), pd.to_datetime(custom_date[1])))
 
     # =======================================================
     # PAGE 1: 전체 자금 현황
