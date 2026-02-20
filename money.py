@@ -17,7 +17,7 @@ def fmt_krw(x):
     return f"{x:,.0f}"
 
 # -----------------------------------------------------------
-# 2. 데이터 로딩 및 전처리 (초고속 캐싱 최적화)
+# 2. 데이터 로딩 및 전처리 (초고속 캐싱)
 # -----------------------------------------------------------
 def clean_currency(x):
     if isinstance(x, str):
@@ -31,7 +31,6 @@ def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
         
-        # 1. 다이렉트
         if '다이렉트' in xls.sheet_names:
             df_d = pd.read_excel(xls, sheet_name='다이렉트')
             df_d.columns = df_d.columns.str.strip()
@@ -43,7 +42,6 @@ def parse_excel_data(file_bytes):
         else:
             df_d = pd.DataFrame()
 
-        # 2. YIWU
         if 'YIWU' in xls.sheet_names:
             df_y = pd.read_excel(xls, sheet_name='YIWU')
             df_y.columns = df_y.columns.str.strip()
@@ -62,7 +60,6 @@ def parse_excel_data(file_bytes):
         else:
             df_y = pd.DataFrame()
 
-        # 3. 송금내역 (YIWU)
         yiwu_balance = 0.0
         df_l = pd.DataFrame()
         target_sheet = '송금내역 (YIWU)'
@@ -78,7 +75,6 @@ def parse_excel_data(file_bytes):
                 if not balances.dropna().empty: yiwu_balance = balances.dropna().iloc[-1]
             if '날짜' in df_l.columns: df_l['날짜'] = pd.to_datetime(df_l['날짜'], errors='coerce')
                 
-        # 4. 환전내역
         df_ex = pd.DataFrame()
         if '환전내역' in xls.sheet_names:
             df_ex = pd.read_excel(xls, sheet_name='환전내역')
@@ -96,22 +92,43 @@ def parse_excel_data(file_bytes):
         st.error(f"데이터 로드 에러: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0.0, pd.DataFrame(), pd.DataFrame()
 
-# 다운로드 및 파싱을 하나로 묶어 강력한 캐싱 적용 (10분 유지)
-@st.cache_data(ttl=600, show_spinner="☁️ 구글 드라이브에서 엑셀 파일을 불러오고 분석하는 중입니다... (최초 1회만 소요)")
+@st.cache_data(ttl=600, show_spinner="☁️ 구글 드라이브에서 데이터를 불러오는 중입니다...")
 def get_drive_data(url):
     file_id_match = re.search(r'/d/([a-zA-Z0-9_-]+)', url) or re.search(r'id=([a-zA-Z0-9_-]+)', url)
     if not file_id_match: return None
-    
     file_id = file_id_match.group(1)
     download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
     try:
         response = requests.get(download_url)
         if response.status_code == 200:
-            file_bytes = io.BytesIO(response.content)
-            return parse_excel_data(file_bytes)
+            return parse_excel_data(io.BytesIO(response.content))
     except Exception as e:
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
+
+# ⭐ 인베스팅닷컴 실시간 환율 스크래핑 (강력한 봇 차단 우회 시도)
+@st.cache_data(ttl=3600, show_spinner="💱 인베스팅닷컴 환율 정보를 불러오는 중입니다...")
+def get_live_exchange_rates():
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+    }
+    try:
+        # USD/KRW 가져오기
+        usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
+        usd_match = re.search(r'data-test="instrument-price-last">([\d,.]+)<', usd_res.text)
+        usd_rate = float(usd_match.group(1).replace(',', '')) if usd_match else 1400.0
+        
+        # CNY/KRW 가져오기
+        cny_res = requests.get("https://kr.investing.com/currencies/cny-krw", headers=headers, timeout=5)
+        cny_match = re.search(r'data-test="instrument-price-last">([\d,.]+)<', cny_res.text)
+        cny_rate = float(cny_match.group(1).replace(',', '')) if cny_match else 195.0
+        
+        return cny_rate, usd_rate
+    except:
+        # 인베스팅닷컴 방어벽에 차단될 경우 기본값 세팅 (차단 대비)
+        return 195.0, 1400.0
 
 # -----------------------------------------------------------
 # 3. 잔고 자동 계산 로직
@@ -166,7 +183,7 @@ def split_direct_data(df):
     return df[~mask_usd].copy(), df[mask_usd].copy()
 
 # -----------------------------------------------------------
-# 4. 사이드바 (구글 링크 고정, 사용자 지정 기간 복구)
+# 4. 사이드바
 # -----------------------------------------------------------
 FIXED_GDRIVE_URL = "https://docs.google.com/spreadsheets/d/1Sj1BNjMpBocCxTQV8OW_cK4-2-eClm2W/edit?usp=sharing&ouid=107636013985223863985&rtpof=true&sd=true"
 
@@ -180,18 +197,20 @@ with st.sidebar:
         st.success("데이터를 새로 불러옵니다!")
         
     st.markdown("---")
+    
+    # ⭐ 인베스팅닷컴 실시간 환율 적용
+    live_cny, live_usd = get_live_exchange_rates()
+    
     col_r1, col_r2 = st.columns(2)
-    with col_r1: rate_cny = st.number_input("1 CNY (원)", value=195.0, format="%.2f")
-    with col_r2: rate_usd = st.number_input("1 USD (원)", value=1400.0, format="%.2f")
+    with col_r1: rate_cny = st.number_input("1 CNY (원)", value=live_cny, format="%.2f")
+    with col_r2: rate_usd = st.number_input("1 USD (원)", value=live_usd, format="%.2f")
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
-    # 날짜 기간 설정 복구
     today = pd.Timestamp.now().normalize()
     custom_date = st.date_input("📅 사용자 지정 기간", (today, today + timedelta(days=14)))
 
     st.markdown("---")
-    # 초기 잔고 세팅을 맨 아래로 배치 및 이모지 제거
     with st.expander("초기 잔고 기준점 세팅"):
         base_date = st.date_input("기준 날짜", value=pd.to_datetime("2026-02-12"))
         base_cny = st.number_input("초기 CNY", value=436013.34)
@@ -211,7 +230,7 @@ else:
     my_cny, my_usd = calculate_realtime_balances(df_d, df_ex, df_l, base_date_ts, base_cny, base_usd)
     
     with st.sidebar:
-        st.subheader("💼 실시간 환전보유액 (자동계산)")
+        st.subheader("환전보유액")
         st.metric("CNY 보유액", fmt_num(my_cny))
         st.metric("USD 보유액", fmt_num(my_usd))
     
@@ -229,7 +248,6 @@ else:
         ("6. 이번달+다음달", dates['this_plus_next_month'][0], dates['this_plus_next_month'][1]),
     ]
     
-    # 사용자 지정 기간을 요약표에 추가 (날짜를 2개 다 선택했을 경우에만)
     if len(custom_date) == 2:
         periods.append(("7. 사용자 지정", pd.to_datetime(custom_date[0]), pd.to_datetime(custom_date[1])))
 
