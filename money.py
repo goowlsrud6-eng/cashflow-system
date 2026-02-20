@@ -26,7 +26,7 @@ def clean_currency(x):
         except: return 0.0
     return float(x) if pd.notnull(x) else 0.0
 
-# 엑셀 파싱 핵심 로직 (캐싱 안함, 데이터만 처리)
+# 엑셀 파싱 핵심 로직
 def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
@@ -113,10 +113,6 @@ def get_drive_data(url):
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
 
-@st.cache_data(ttl=60)
-def get_local_data(file):
-    return parse_excel_data(file)
-
 # -----------------------------------------------------------
 # 3. 잔고 자동 계산 로직
 # -----------------------------------------------------------
@@ -170,23 +166,21 @@ def split_direct_data(df):
     return df[~mask_usd].copy(), df[mask_usd].copy()
 
 # -----------------------------------------------------------
-# 4. 사이드바 
+# 4. 사이드바 (구글 링크 고정, 군더더기 제거)
 # -----------------------------------------------------------
+# 👇 사장님이 주신 구글 드라이브 링크가 여기에 아예 고정되었습니다!
+FIXED_GDRIVE_URL = "https://docs.google.com/spreadsheets/d/1Sj1BNjMpBocCxTQV8OW_cK4-2-eClm2W/edit?usp=sharing&ouid=107636013985223863985&rtpof=true&sd=true"
+
 with st.sidebar:
     st.title("⚙️ 자금 설정")
     menu = st.radio("화면 이동", ["전체 자금 현황", "다이렉트 (CNY)", "다이렉트 (USD)", "이우 (YIWU)", "환전 내역"])
     st.markdown("---")
     
-    st.subheader("🔗 엑셀 연동 (택 1)")
-    gdrive_url = st.text_input("구글 드라이브 공유 링크 붙여넣기", placeholder="https://drive.google.com/...")
-    
-    # ⚡ 최적화: 수동 새로고침 버튼
+    # 대표님이 엑셀 데이터 수정 사항을 바로 보고 싶을 때 누르는 버튼
     if st.button("🔄 최신 데이터 불러오기"):
         st.cache_data.clear()
-        st.success("데이터 캐시를 초기화했습니다. 최신 엑셀을 불러옵니다!")
+        st.success("데이터를 새로 불러옵니다!")
         
-    uploaded_file = st.file_uploader("또는 수동 업로드", type=['xlsx'])
-    
     st.markdown("---")
     col_r1, col_r2 = st.columns(2)
     with col_r1: rate_cny = st.number_input("1 CNY (원)", value=195.0, format="%.2f")
@@ -194,6 +188,7 @@ with st.sidebar:
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
+    # 초기 잔고 세팅(기준값)은 유지하되 닫아둡니다.
     with st.expander("🛠️ 초기 잔고 기준점 세팅 (2/12 기준)"):
         base_date = st.date_input("기준 날짜", value=pd.to_datetime("2026-02-12"))
         base_cny = st.number_input("초기 CNY", value=436013.34)
@@ -204,15 +199,11 @@ with st.sidebar:
 # -----------------------------------------------------------
 # 5. 화면 로직
 # -----------------------------------------------------------
-data_tuple = None
+data_tuple = get_drive_data(FIXED_GDRIVE_URL)
 
-if gdrive_url:
-    data_tuple = get_drive_data(gdrive_url)
-    if not data_tuple: st.warning("구글 드라이브 링크를 확인할 수 없거나 로딩에 실패했습니다.")
-elif uploaded_file:
-    data_tuple = get_local_data(uploaded_file)
-
-if data_tuple:
+if not data_tuple:
+    st.warning("구글 드라이브 링크를 읽어오는 데 실패했습니다. 파일 공유 상태를 다시 확인해주세요.")
+else:
     df_d, df_y, yiwu_balance, df_l, df_ex = data_tuple
     
     base_date_ts = pd.to_datetime(base_date)
@@ -437,6 +428,3 @@ if data_tuple:
         if '잔금 금액(USD)' in disp_final.columns: disp_final['잔금 금액(USD)'] = disp_final['잔금 금액(USD)'].apply(fmt_num)
         if '잔금 금액(KRW)' in disp_final.columns: disp_final['잔금 금액(KRW)'] = disp_final['잔금 금액(KRW)'].apply(fmt_krw)
         st.dataframe(disp_final, hide_index=True, use_container_width=True)
-
-else:
-    st.info("👈 왼쪽 사이드바에 구글 드라이브 공유 링크를 붙여넣어주세요! (최초 1회만 하면 끝납니다)")
