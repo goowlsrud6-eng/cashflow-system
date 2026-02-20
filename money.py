@@ -352,9 +352,11 @@ else:
         else:
             df_cny_ex = df_ex[df_ex['화폐'].astype(str).str.upper() == 'CNY'].copy()
             df_usd_ex = df_ex[df_ex['화폐'].astype(str).str.upper() == 'USD'].copy()
-            tab1, tab2 = st.tabs(["🇨🇳 CNY 환전", "🇺🇸 USD 환전"])
             
-            with tab1:
+            # ⭐ 탭 대신 좌우로 분할!
+            col1, col2 = st.columns(2)
+            
+            with col1:
                 st.subheader("🇨🇳 CNY 환전 내역")
                 if not df_cny_ex.empty:
                     disp_cny = df_cny_ex.copy()
@@ -372,12 +374,12 @@ else:
                     show_cols = ['환전 일자', '외화금액(CNY)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_cny.columns]
                     
-                    # ⭐ use_container_width=False 로 변경하여 과도하게 늘어나는 것 방지!
-                    st.dataframe(disp_cny[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=False)
+                    # 좌우 분할이라 절반 너비를 차지하므로 use_container_width=True로 꽉 차게 둡니다
+                    st.dataframe(disp_cny[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
                 else:
                     st.info("CNY 환전 내역이 없습니다.")
                     
-            with tab2:
+            with col2:
                 st.subheader("🇺🇸 USD 환전 내역")
                 if not df_usd_ex.empty:
                     disp_usd = df_usd_ex.copy()
@@ -395,8 +397,7 @@ else:
                     show_cols = ['환전 일자', '외화금액(USD)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_usd.columns]
                     
-                    # ⭐ use_container_width=False 로 변경!
-                    st.dataframe(disp_usd[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=False)
+                    st.dataframe(disp_usd[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
                 else:
                     st.info("USD 환전 내역이 없습니다.")
 
