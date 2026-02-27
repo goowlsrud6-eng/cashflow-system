@@ -120,7 +120,6 @@ def get_live_exchange_rates():
     }
     cny_rate, usd_rate = None, None
     
-    # 1. 인베스팅닷컴 시도
     try:
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
         usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
@@ -132,7 +131,6 @@ def get_live_exchange_rates():
     except:
         pass
 
-    # 2. 막히면 네이버 금융에서 가져오기 (안전장치)
     if not cny_rate or not usd_rate:
         try:
             url = "https://finance.naver.com/marketindex/exchangeList.naver"
@@ -359,7 +357,6 @@ else:
                 st.subheader("🇨🇳 CNY 환전 내역")
                 if not df_cny_ex.empty:
                     disp_cny = df_cny_ex.copy()
-                    
                     date_col = '일자' if '일자' in disp_cny.columns else '날짜'
                     if date_col in disp_cny.columns:
                         disp_cny['환전 일자'] = pd.to_datetime(disp_cny[date_col]).dt.strftime('%Y-%m-%d')
@@ -372,7 +369,6 @@ else:
                     
                     show_cols = ['환전 일자', '외화금액(CNY)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_cny.columns]
-                    
                     st.dataframe(disp_cny[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
                 else:
                     st.info("CNY 환전 내역이 없습니다.")
@@ -381,7 +377,6 @@ else:
                 st.subheader("🇺🇸 USD 환전 내역")
                 if not df_usd_ex.empty:
                     disp_usd = df_usd_ex.copy()
-                    
                     date_col = '일자' if '일자' in disp_usd.columns else '날짜'
                     if date_col in disp_usd.columns:
                         disp_usd['환전 일자'] = pd.to_datetime(disp_usd[date_col]).dt.strftime('%Y-%m-%d')
@@ -394,13 +389,12 @@ else:
                     
                     show_cols = ['환전 일자', '외화금액(USD)', '환율', '원화금액(KRW)']
                     valid_cols = [c for c in show_cols if c in disp_usd.columns]
-                    
                     st.dataframe(disp_usd[valid_cols].sort_values('환전 일자', ascending=False), hide_index=True, use_container_width=True)
                 else:
                     st.info("USD 환전 내역이 없습니다.")
 
     # =======================================================
-    # PAGE: 다이렉트 CNY
+    # PAGE: 다이렉트 CNY (⭐ 날짜별 누적 송금 필요액 추가)
     # =======================================================
     elif menu == "다이렉트 (CNY)":
         st.header("다이렉트 관리 (CNY)")
@@ -423,17 +417,29 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        st.subheader("📋 상세 내역")
+        st.subheader("📋 상세 내역 (날짜별 누적 송금 시뮬레이션)")
+        
+        # ⭐ 잔금 날짜순 정렬 후 누적 지출 계산
+        df_view = df_view.sort_values('잔금_날짜').copy()
         df_view['잔금 금액(KRW)'] = df_view['잔금_금액'] * rate_cny
-        df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(KRW)', '진행단계']].copy()
-        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(KRW)', '진행단계']
+        
+        df_view['누적_잔금(CNY)'] = df_view['잔금_금액'].cumsum()
+        df_view['송금 필요액(CNY)'] = (df_view['누적_잔금(CNY)'] - my_cny).clip(lower=0)
+        df_view['송금 필요액(KRW)'] = df_view['송금 필요액(CNY)'] * rate_cny
+        
+        df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(KRW)', '송금 필요액(CNY)', '송금 필요액(KRW)', '진행단계']].copy()
+        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(KRW)', '송금 필요액(CNY)', '송금 필요액(KRW)', '진행단계']
+        
         if '잔금 날짜' in df_disp.columns: df_disp['잔금 날짜'] = df_disp['잔금 날짜'].dt.strftime('%Y-%m-%d')
         if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(fmt_num)
         if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
-        st.dataframe(df_disp.sort_values('잔금 날짜'), hide_index=True, use_container_width=True)
+        if '송금 필요액(CNY)' in df_disp.columns: df_disp['송금 필요액(CNY)'] = df_disp['송금 필요액(CNY)'].apply(fmt_num)
+        if '송금 필요액(KRW)' in df_disp.columns: df_disp['송금 필요액(KRW)'] = df_disp['송금 필요액(KRW)'].apply(fmt_krw)
+        
+        st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
     # =======================================================
-    # PAGE: 다이렉트 USD
+    # PAGE: 다이렉트 USD (⭐ 날짜별 누적 송금 필요액 추가)
     # =======================================================
     elif menu == "다이렉트 (USD)":
         st.header("다이렉트 관리 (USD)")
@@ -458,21 +464,32 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        st.subheader("📋 상세 내역")
+        st.subheader("📋 상세 내역 (날짜별 누적 송금 시뮬레이션)")
+        
+        # ⭐ 잔금 날짜순 정렬 후 누적 지출 계산
+        df_view = df_view.sort_values('잔금_날짜').copy()
         df_view['잔금 금액(CNY)'] = df_view.apply(lambda r: r['잔금_금액'] if r['화폐단위'] == 'CNY' else 0, axis=1)
         df_view['잔금 금액(USD)'] = df_view.apply(lambda r: r['잔금_금액'] if r['화폐단위'] == 'USD' else r['잔금_금액'] * cny_to_usd_rate, axis=1)
         df_view['잔금 금액(KRW)'] = df_view['잔금 금액(USD)'] * rate_usd
         
-        df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '진행단계']].copy()
-        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '진행단계']
+        df_view['누적_잔금(USD)'] = df_view['잔금 금액(USD)'].cumsum()
+        df_view['송금 필요액(USD)'] = (df_view['누적_잔금(USD)'] - my_usd).clip(lower=0)
+        df_view['송금 필요액(KRW)'] = df_view['송금 필요액(USD)'] * rate_usd
+        
+        df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '송금 필요액(USD)', '송금 필요액(KRW)', '진행단계']].copy()
+        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '송금 필요액(USD)', '송금 필요액(KRW)', '진행단계']
+        
         if '잔금 날짜' in df_disp.columns: df_disp['잔금 날짜'] = df_disp['잔금 날짜'].dt.strftime('%Y-%m-%d')
         if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(lambda x: fmt_num(x) if x > 0 else "")
         if '잔금 금액(USD)' in df_disp.columns: df_disp['잔금 금액(USD)'] = df_disp['잔금 금액(USD)'].apply(fmt_num)
         if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
-        st.dataframe(df_disp.sort_values('잔금 날짜'), hide_index=True, use_container_width=True)
+        if '송금 필요액(USD)' in df_disp.columns: df_disp['송금 필요액(USD)'] = df_disp['송금 필요액(USD)'].apply(fmt_num)
+        if '송금 필요액(KRW)' in df_disp.columns: df_disp['송금 필요액(KRW)'] = df_disp['송금 필요액(KRW)'].apply(fmt_krw)
+        
+        st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
     # =======================================================
-    # PAGE: 이우 (YIWU)
+    # PAGE: 이우 (YIWU) (⭐ 날짜별 누적 송금 필요액 추가)
     # =======================================================
     elif menu == "이우 (YIWU)":
         st.header("이우(YIWU) 자금 관리")
@@ -495,13 +512,21 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        st.subheader("📋 상세 내역")
+        st.subheader("📋 상세 내역 (날짜별 누적 송금 시뮬레이션)")
+        
+        # ⭐ 잔금 날짜순 정렬 후 누적 지출 계산
         df_disp = df_y_active.sort_values('잔금_날짜').copy()
         df_disp['잔금 금액(CNY)'] = df_disp['잔금_금액']
         df_disp['잔금 금액(USD)'] = df_disp['잔금_금액'] * cny_to_usd_rate
         df_disp['잔금 금액(KRW)'] = df_disp['잔금_금액'] * rate_cny
         
-        cols_to_show = ['잔금_날짜', '품목', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '진행단계']
+        # YIWU의 경우: 물품대(CNY)에서 먼저 깎고, 부족한 CNY를 USD로 환산해서 내 달러통장(my_usd)에서 깎음
+        df_disp['누적_잔금(CNY)'] = df_disp['잔금_금액'].cumsum()
+        df_disp['물품대 부족액(CNY)'] = (df_disp['누적_잔금(CNY)'] - yiwu_balance).clip(lower=0)
+        df_disp['송금 필요액(USD)'] = (df_disp['물품대 부족액(CNY)'] * cny_to_usd_rate - my_usd).clip(lower=0)
+        df_disp['송금 필요액(KRW)'] = df_disp['송금 필요액(USD)'] * rate_usd
+        
+        cols_to_show = ['잔금_날짜', '품목', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '송금 필요액(USD)', '송금 필요액(KRW)', '진행단계']
         disp_final = df_disp[[c for c in cols_to_show if c in df_disp.columns]].copy()
         disp_final.rename(columns={'잔금_날짜': '잔금 날짜', '품목': '상품명'}, inplace=True)
         
@@ -509,4 +534,7 @@ else:
         if '잔금 금액(CNY)' in disp_final.columns: disp_final['잔금 금액(CNY)'] = disp_final['잔금 금액(CNY)'].apply(fmt_num)
         if '잔금 금액(USD)' in disp_final.columns: disp_final['잔금 금액(USD)'] = disp_final['잔금 금액(USD)'].apply(fmt_num)
         if '잔금 금액(KRW)' in disp_final.columns: disp_final['잔금 금액(KRW)'] = disp_final['잔금 금액(KRW)'].apply(fmt_krw)
+        if '송금 필요액(USD)' in disp_final.columns: disp_final['송금 필요액(USD)'] = disp_final['송금 필요액(USD)'].apply(fmt_num)
+        if '송금 필요액(KRW)' in disp_final.columns: disp_final['송금 필요액(KRW)'] = disp_final['송금 필요액(KRW)'].apply(fmt_krw)
+        
         st.dataframe(disp_final, hide_index=True, use_container_width=True)
