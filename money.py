@@ -32,7 +32,6 @@ def clean_currency(x):
         except: return 0.0
     return float(x) if pd.notnull(x) else 0.0
 
-# 엑셀 파싱 핵심 로직
 def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
@@ -112,14 +111,10 @@ def get_drive_data(url):
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
 
-# ⭐ 인베스팅닷컴 + 네이버 금융 이중 안전장치 (실시간 환율)
 @st.cache_data(ttl=3600, show_spinner="💱 실시간 환율 정보를 불러오는 중입니다...")
 def get_live_exchange_rates():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
     cny_rate, usd_rate = None, None
-    
     try:
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
         usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
@@ -128,30 +123,22 @@ def get_live_exchange_rates():
         cny_res = requests.get("https://kr.investing.com/currencies/cny-krw", headers=headers, timeout=5)
         cny_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', cny_res.text)
         if cny_match: cny_rate = float(cny_match.group(1).replace(',', ''))
-    except:
-        pass
+    except: pass
 
     if not cny_rate or not usd_rate:
         try:
             url = "https://finance.naver.com/marketindex/exchangeList.naver"
             res = requests.get(url, headers=headers, timeout=5)
             res.encoding = 'euc-kr'
-            
             if not usd_rate:
                 u_match = re.search(r'미국 USD.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
                 if u_match: usd_rate = float(u_match.group(1).replace(',', ''))
-            
             if not cny_rate:
                 c_match = re.search(r'중국 CNY.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
                 if c_match: cny_rate = float(c_match.group(1).replace(',', ''))
-        except:
-            pass
-
+        except: pass
     return cny_rate or 195.0, usd_rate or 1400.0
 
-# -----------------------------------------------------------
-# 3. 잔고 자동 계산 로직
-# -----------------------------------------------------------
 def calculate_realtime_balances(df_d, df_ex, df_l, base_date, base_cny, base_usd):
     cny_bal = base_cny
     usd_bal = base_usd
@@ -282,11 +269,56 @@ else:
         
         st.markdown("---")
 
+        # ⭐ 새롭게 추가된 [통합 자금 필요액 요약]
+        st.subheader("🌟 통합 자금 필요액 요약 (다이렉트 + 이우 합산)")
+        st.markdown("환율이 낮을 때 미리 환전해두기 위해 **전체 부서에서 필요한 총 달러(USD)와 위안화(CNY)**를 합산한 표입니다.")
+        
+        df_cny_only, df_usd_only = split_direct_data(df_d_active)
+        summary_rows = []
+        
+        for label, s, e in periods:
+            # 1. Direct CNY (CNY 통장 소진)
+            sub_cny = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)] if s and e else df_cny_only
+            exp_cny = sub_cny['잔금_금액'].sum()
+            
+            # 2. Direct USD (USD 통장 소진)
+            sub_usd = df_usd_only[(df_usd_only['잔금_날짜'] >= s) & (df_usd_only['잔금_날짜'] <= e)] if s and e else df_usd_only
+            val_pure = sub_usd[sub_usd['화폐단위'] == 'USD']['잔금_금액'].sum()
+            val_conv = sub_usd[sub_usd['화폐단위'] == 'CNY']['잔금_금액'].sum() * cny_to_usd_rate
+            exp_usd_direct = val_pure + val_conv
+            
+            # 3. YIWU USD (물품대 초과분 -> USD 통장 소진)
+            sub_yiwu = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
+            exp_yiwu_cny = sub_yiwu['잔금_금액'].sum()
+            yiwu_short_cny = max(exp_yiwu_cny - yiwu_balance, 0)
+            yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
+            
+            # 합산
+            total_req_cny = exp_cny
+            total_req_usd = exp_usd_direct + yiwu_req_usd
+            
+            # 최종적으로 통장에서 부족한 금액 (실제 환전해야 하는 금액)
+            final_short_cny = max(total_req_cny - my_cny, 0)
+            final_short_usd = max(total_req_usd - my_usd, 0)
+            total_short_krw = (final_short_cny * rate_cny) + (final_short_usd * rate_usd)
+            
+            summary_rows.append({
+                "기간": label,
+                "총 필요액(CNY)": fmt_num(total_req_cny),
+                "총 필요액(USD)": fmt_num(total_req_usd),
+                "최종 환전필요(CNY)": fmt_num(final_short_cny),
+                "최종 환전필요(USD)": fmt_num(final_short_usd),
+                "총 환전필요(KRW)": fmt_krw(total_short_krw)
+            })
+            
+        st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
+
+        st.markdown("---")
+
         c_h, c_b = st.columns([5, 2])
         with c_h: st.subheader("1️⃣ 다이렉트 (CNY) 현황")
         with c_b: st.markdown(f"**💰 CNY 보유액:** :green[{fmt_num(my_cny)}]")
         
-        df_cny_only, _ = split_direct_data(df_d_active)
         rows_cny = []
         for label, s, e in periods:
             sub = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)] if s and e else df_cny_only
@@ -304,7 +336,6 @@ else:
         with c_h: st.subheader("2️⃣ 다이렉트 (USD) 현황")
         with c_b: st.markdown(f"**💰 USD 보유액:** :green[{fmt_num(my_usd)}]")
 
-        _, df_usd_only = split_direct_data(df_d_active)
         rows_usd = []
         for label, s, e in periods:
             sub = df_usd_only[(df_usd_only['잔금_날짜'] >= s) & (df_usd_only['잔금_날짜'] <= e)] if s and e else df_usd_only
@@ -417,7 +448,6 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        # 괄호 내용 삭제
         st.subheader("📋 상세 내역")
         
         df_view = df_view.sort_values('잔금_날짜').copy()
@@ -464,7 +494,6 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        # 괄호 내용 삭제
         st.subheader("📋 상세 내역")
         
         df_view = df_view.sort_values('잔금_날짜').copy()
@@ -489,7 +518,7 @@ else:
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
     # =======================================================
-    # PAGE: 이우 (YIWU)
+    # PAGE: 이우 (YIWU) 
     # =======================================================
     elif menu == "이우 (YIWU)":
         st.header("이우(YIWU) 자금 관리")
@@ -512,7 +541,6 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        # 괄호 내용 삭제
         st.subheader("📋 상세 내역")
         
         df_disp = df_y_active.sort_values('잔금_날짜').copy()
