@@ -394,7 +394,7 @@ else:
                     st.info("USD 환전 내역이 없습니다.")
 
     # =======================================================
-    # PAGE: 다이렉트 CNY (⭐ 날짜별 누적 송금 필요액 추가)
+    # PAGE: 다이렉트 CNY 
     # =======================================================
     elif menu == "다이렉트 (CNY)":
         st.header("다이렉트 관리 (CNY)")
@@ -417,9 +417,9 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        st.subheader("📋 상세 내역 (날짜별 누적 송금 시뮬레이션)")
+        # 괄호 내용 삭제
+        st.subheader("📋 상세 내역")
         
-        # ⭐ 잔금 날짜순 정렬 후 누적 지출 계산
         df_view = df_view.sort_values('잔금_날짜').copy()
         df_view['잔금 금액(KRW)'] = df_view['잔금_금액'] * rate_cny
         
@@ -439,7 +439,7 @@ else:
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
     # =======================================================
-    # PAGE: 다이렉트 USD (⭐ 날짜별 누적 송금 필요액 추가)
+    # PAGE: 다이렉트 USD 
     # =======================================================
     elif menu == "다이렉트 (USD)":
         st.header("다이렉트 관리 (USD)")
@@ -464,9 +464,9 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        st.subheader("📋 상세 내역 (날짜별 누적 송금 시뮬레이션)")
+        # 괄호 내용 삭제
+        st.subheader("📋 상세 내역")
         
-        # ⭐ 잔금 날짜순 정렬 후 누적 지출 계산
         df_view = df_view.sort_values('잔금_날짜').copy()
         df_view['잔금 금액(CNY)'] = df_view.apply(lambda r: r['잔금_금액'] if r['화폐단위'] == 'CNY' else 0, axis=1)
         df_view['잔금 금액(USD)'] = df_view.apply(lambda r: r['잔금_금액'] if r['화폐단위'] == 'USD' else r['잔금_금액'] * cny_to_usd_rate, axis=1)
@@ -489,7 +489,7 @@ else:
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
     # =======================================================
-    # PAGE: 이우 (YIWU) (⭐ 날짜별 누적 송금 필요액 추가)
+    # PAGE: 이우 (YIWU)
     # =======================================================
     elif menu == "이우 (YIWU)":
         st.header("이우(YIWU) 자금 관리")
@@ -512,15 +512,14 @@ else:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         
         st.markdown("---")
-        st.subheader("📋 상세 내역 (날짜별 누적 송금 시뮬레이션)")
+        # 괄호 내용 삭제
+        st.subheader("📋 상세 내역")
         
-        # ⭐ 잔금 날짜순 정렬 후 누적 지출 계산
         df_disp = df_y_active.sort_values('잔금_날짜').copy()
         df_disp['잔금 금액(CNY)'] = df_disp['잔금_금액']
         df_disp['잔금 금액(USD)'] = df_disp['잔금_금액'] * cny_to_usd_rate
         df_disp['잔금 금액(KRW)'] = df_disp['잔금_금액'] * rate_cny
         
-        # YIWU의 경우: 물품대(CNY)에서 먼저 깎고, 부족한 CNY를 USD로 환산해서 내 달러통장(my_usd)에서 깎음
         df_disp['누적_잔금(CNY)'] = df_disp['잔금_금액'].cumsum()
         df_disp['물품대 부족액(CNY)'] = (df_disp['누적_잔금(CNY)'] - yiwu_balance).clip(lower=0)
         df_disp['송금 필요액(USD)'] = (df_disp['물품대 부족액(CNY)'] * cny_to_usd_rate - my_usd).clip(lower=0)
