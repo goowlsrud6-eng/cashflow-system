@@ -32,6 +32,7 @@ def clean_currency(x):
         except: return 0.0
     return float(x) if pd.notnull(x) else 0.0
 
+# 엑셀 파싱 핵심 로직
 def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
@@ -111,10 +112,14 @@ def get_drive_data(url):
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
 
+# ⭐ 인베스팅닷컴 + 네이버 금융 이중 안전장치 (실시간 환율)
 @st.cache_data(ttl=3600, show_spinner="💱 실시간 환율 정보를 불러오는 중입니다...")
 def get_live_exchange_rates():
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
     cny_rate, usd_rate = None, None
+    
     try:
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
         usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
@@ -123,22 +128,30 @@ def get_live_exchange_rates():
         cny_res = requests.get("https://kr.investing.com/currencies/cny-krw", headers=headers, timeout=5)
         cny_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', cny_res.text)
         if cny_match: cny_rate = float(cny_match.group(1).replace(',', ''))
-    except: pass
+    except:
+        pass
 
     if not cny_rate or not usd_rate:
         try:
             url = "https://finance.naver.com/marketindex/exchangeList.naver"
             res = requests.get(url, headers=headers, timeout=5)
             res.encoding = 'euc-kr'
+            
             if not usd_rate:
                 u_match = re.search(r'미국 USD.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
                 if u_match: usd_rate = float(u_match.group(1).replace(',', ''))
+            
             if not cny_rate:
                 c_match = re.search(r'중국 CNY.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
                 if c_match: cny_rate = float(c_match.group(1).replace(',', ''))
-        except: pass
+        except:
+            pass
+
     return cny_rate or 195.0, usd_rate or 1400.0
 
+# -----------------------------------------------------------
+# 3. 잔고 자동 계산 로직
+# -----------------------------------------------------------
 def calculate_realtime_balances(df_d, df_ex, df_l, base_date, base_cny, base_usd):
     cny_bal = base_cny
     usd_bal = base_usd
@@ -269,9 +282,8 @@ else:
         
         st.markdown("---")
 
-        # ⭐ 새롭게 추가된 [통합 자금 필요액 요약]
-        st.subheader("🌟 통합 자금 필요액 요약 (다이렉트 + 이우 합산)")
-        st.markdown("환율이 낮을 때 미리 환전해두기 위해 **전체 부서에서 필요한 총 달러(USD)와 위안화(CNY)**를 합산한 표입니다.")
+        # ⭐ 깔끔해진 [통화별 환전 필요액]
+        st.subheader("통화별 환전 필요액")
         
         df_cny_only, df_usd_only = split_direct_data(df_d_active)
         summary_rows = []
@@ -297,18 +309,21 @@ else:
             total_req_cny = exp_cny
             total_req_usd = exp_usd_direct + yiwu_req_usd
             
-            # 최종적으로 통장에서 부족한 금액 (실제 환전해야 하는 금액)
+            # 부족분 (환전 필요)
             final_short_cny = max(total_req_cny - my_cny, 0)
             final_short_usd = max(total_req_usd - my_usd, 0)
-            total_short_krw = (final_short_cny * rate_cny) + (final_short_usd * rate_usd)
             
+            # KRW 뒤에 띄어쓰기를 넣어서 판다스 중복오류를 막는 마법!
             summary_rows.append({
                 "기간": label,
-                "총 필요액(CNY)": fmt_num(total_req_cny),
-                "총 필요액(USD)": fmt_num(total_req_usd),
-                "최종 환전필요(CNY)": fmt_num(final_short_cny),
-                "최종 환전필요(USD)": fmt_num(final_short_usd),
-                "총 환전필요(KRW)": fmt_krw(total_short_krw)
+                "지출예정액(CNY)": fmt_num(total_req_cny),
+                "지출예정액(KRW) ": fmt_krw(total_req_cny * rate_cny),
+                "환전필요액(CNY)": fmt_num(final_short_cny),
+                "환전필요액(KRW) ": fmt_krw(final_short_cny * rate_cny),
+                "지출예정액(USD)": fmt_num(total_req_usd),
+                "지출예정액(KRW)": fmt_krw(total_req_usd * rate_usd),
+                "환전필요액(USD)": fmt_num(final_short_usd),
+                "환전필요액(KRW)": fmt_krw(final_short_usd * rate_usd)
             })
             
         st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
