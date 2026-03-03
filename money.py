@@ -266,20 +266,20 @@ else:
     # PAGE 1: 전체 자금 현황
     # =======================================================
     if menu == "전체 자금 현황":
-        # ⭐ 레이아웃 분할: 왼쪽은 메인 텍스트, 오른쪽은 용어 설명 메모
-        top_col1, top_col2 = st.columns([6, 4])
+        # ⭐ 레이아웃 비율을 [7, 3]으로 조정하여 메모장이 콤팩트하게 보이도록 함
+        top_col1, top_col2 = st.columns([7, 3])
         
         with top_col1:
             st.header("📊 전체 자금 현황 대시보드")
             
         with top_col2:
+            # ⭐ (직접 수정 가능) 문구 삭제!
             st.markdown("##### 💡 항목명 설명")
-            # st.data_editor를 사용하여 사용자가 직접 입력/수정할 수 있게 지원
             st.session_state.memo_df = st.data_editor(
                 st.session_state.memo_df, 
-                use_container_width=True, 
+                use_container_width=False, # ⭐ 너비를 내용물 크기에 맞게 축소 (콤팩트하게!)
                 hide_index=True,
-                num_rows="dynamic" # 행 추가/삭제도 가능하게 설정
+                num_rows="dynamic" 
             )
 
         c1, c2, c3 = st.columns(3)
@@ -315,13 +315,12 @@ else:
             final_short_cny = max(total_req_cny - my_cny, 0)
             final_short_usd = max(total_req_usd - my_usd, 0)
             
-            # ⭐ 1. 전체 자금 현황 메뉴 - 통화별 환전 필요액 항목명 반영
             summary_rows.append({
                 "기간": label,
                 "총 물품대(CNY)": fmt_num(total_req_cny),
-                "총 물품대(KRW) ": fmt_krw(total_req_cny * rate_cny), # 공백으로 중복 에러 방지
+                "총 물품대(KRW) ": fmt_krw(total_req_cny * rate_cny), 
                 "환전 필요액(CNY)": fmt_num(final_short_cny),
-                "환전 필요액(KRW) ": fmt_krw(final_short_cny * rate_cny), # 공백으로 중복 에러 방지
+                "환전 필요액(KRW) ": fmt_krw(final_short_cny * rate_cny), 
                 "부족 물품대(USD)": fmt_num(total_req_usd),
                 "부족 물품대(KRW)": fmt_krw(total_req_usd * rate_usd),
                 "환전 필요액(USD)": fmt_num(final_short_usd),
@@ -341,7 +340,6 @@ else:
             sub = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)] if s and e else df_cny_only
             exp_cny = sub['잔금_금액'].sum()
             need_cny = max(exp_cny - my_cny, 0)
-            # ⭐ 1. 다이렉트(CNY) 현황표 항목명 반영
             rows_cny.append({
                 "기간": label, 
                 "총 물품대(CNY)": fmt_num(exp_cny), 
@@ -364,7 +362,6 @@ else:
             val_conv = sub[sub['화폐단위'] == 'CNY']['잔금_금액'].sum() * cny_to_usd_rate
             exp_usd = val_pure + val_conv
             need_usd = max(exp_usd - my_usd, 0)
-            # ⭐ 1. 다이렉트(USD) 현황표 항목명 반영
             rows_usd.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_usd), 
@@ -388,7 +385,6 @@ else:
             short_cny = max(exp_cny - yiwu_balance, 0)
             short_usd = short_cny * cny_to_usd_rate
             remit_usd = max(short_usd - my_usd, 0)
-            # ⭐ 1. 이우(YIWU) 현황표 항목명 반영
             rows_yiwu.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_cny * cny_to_usd_rate), 
@@ -469,7 +465,6 @@ else:
             sub = df_view[(df_view['잔금_날짜'] >= s) & (df_view['잔금_날짜'] <= e)] if s and e else df_view
             exp_cny = sub['잔금_금액'].sum()
             need_cny = max(exp_cny - my_cny, 0)
-            # ⭐ 2. 다이렉트(CNY) 기간별 계획 현황표 반영
             rows.append({
                 "기간": label, 
                 "총 물품대(CNY)": fmt_num(exp_cny), 
@@ -490,7 +485,6 @@ else:
         df_view['환전 필요액(CNY)'] = (df_view['누적_잔금(CNY)'] - my_cny).clip(lower=0) 
         df_view['환전 필요액(KRW)'] = df_view['환전 필요액(CNY)'] * rate_cny
         
-        # ⭐ 2. 다이렉트(CNY) 상세 내역 항목명 반영
         df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(USD)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']].copy()
         df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']
         
@@ -520,7 +514,6 @@ else:
             val_conv = sub[sub['화폐단위'] == 'CNY']['잔금_금액'].sum() * cny_to_usd_rate
             exp_usd = val_pure + val_conv
             need_usd = max(exp_usd - my_usd, 0)
-            # ⭐ 3. 다이렉트(USD) 기간별 계획 현황표 반영
             rows.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_usd), 
@@ -543,7 +536,6 @@ else:
         df_view['환전 필요액(USD)'] = (df_view['누적_잔금(USD)'] - my_usd).clip(lower=0) 
         df_view['환전 필요액(KRW)'] = df_view['환전 필요액(USD)'] * rate_usd
         
-        # ⭐ 3. 다이렉트(USD) 상세 내역 항목명 반영
         df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']].copy()
         df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']
         
@@ -557,7 +549,7 @@ else:
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
     # =======================================================
-    # PAGE: 이우 (YIWU)
+    # PAGE: 이우 (YIWU) 
     # =======================================================
     elif menu == "이우 (YIWU)":
         st.header("이우(YIWU) 자금 관리")
@@ -577,7 +569,6 @@ else:
             short_usd = short_cny * cny_to_usd_rate
             remit_usd = max(short_usd - my_usd, 0)
             
-            # ⭐ 4. 이우(YIWU) 기간별 계획 현황표 반영
             rows.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_usd),
@@ -607,7 +598,6 @@ else:
         df_disp['환전 필요액(USD)'] = (df_disp['부족 물품대(USD)'] - my_usd).clip(lower=0)
         df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(USD)'] * rate_usd
         
-        # ⭐ 4. 이우(YIWU) 상세 내역 항목명 반영
         cols_to_show = ['잔금_날짜', '품목', '잔금 금액(USD)', '잔금 금액(KRW)', '부족 물품대(USD)', '부족 물품대(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']
         disp_final = df_disp[[c for c in cols_to_show if c in df_disp.columns]].copy()
         disp_final.rename(columns={'잔금_날짜': '잔금 날짜', '품목': '상품명', '진행단계': '진행 단계'}, inplace=True)
