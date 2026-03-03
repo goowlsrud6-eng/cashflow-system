@@ -273,7 +273,7 @@ else:
             st.header("📊 전체 자금 현황 대시보드")
             
         with top_col2:
-            st.markdown("##### 💡 항목명 설명 (직접 수정 가능)")
+            st.markdown("##### 💡 항목명 설명")
             # st.data_editor를 사용하여 사용자가 직접 입력/수정할 수 있게 지원
             st.session_state.memo_df = st.data_editor(
                 st.session_state.memo_df, 
