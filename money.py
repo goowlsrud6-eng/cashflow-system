@@ -32,7 +32,6 @@ def clean_currency(x):
         except: return 0.0
     return float(x) if pd.notnull(x) else 0.0
 
-# 엑셀 파싱 핵심 로직
 def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
@@ -112,14 +111,10 @@ def get_drive_data(url):
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
 
-# ⭐ 인베스팅닷컴 + 네이버 금융 이중 안전장치 (실시간 환율)
 @st.cache_data(ttl=3600, show_spinner="💱 실시간 환율 정보를 불러오는 중입니다...")
 def get_live_exchange_rates():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
     cny_rate, usd_rate = None, None
-    
     try:
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
         usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
@@ -128,30 +123,22 @@ def get_live_exchange_rates():
         cny_res = requests.get("https://kr.investing.com/currencies/cny-krw", headers=headers, timeout=5)
         cny_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', cny_res.text)
         if cny_match: cny_rate = float(cny_match.group(1).replace(',', ''))
-    except:
-        pass
+    except: pass
 
     if not cny_rate or not usd_rate:
         try:
             url = "https://finance.naver.com/marketindex/exchangeList.naver"
             res = requests.get(url, headers=headers, timeout=5)
             res.encoding = 'euc-kr'
-            
             if not usd_rate:
                 u_match = re.search(r'미국 USD.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
                 if u_match: usd_rate = float(u_match.group(1).replace(',', ''))
-            
             if not cny_rate:
                 c_match = re.search(r'중국 CNY.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
                 if c_match: cny_rate = float(c_match.group(1).replace(',', ''))
-        except:
-            pass
-
+        except: pass
     return cny_rate or 195.0, usd_rate or 1400.0
 
-# -----------------------------------------------------------
-# 3. 잔고 자동 계산 로직
-# -----------------------------------------------------------
 def calculate_realtime_balances(df_d, df_ex, df_l, base_date, base_cny, base_usd):
     cny_bal = base_cny
     usd_bal = base_usd
@@ -278,42 +265,36 @@ else:
         c1, c2, c3 = st.columns(3)
         c1.metric("CNY 환전보유액", fmt_num(my_cny), f"≈ {fmt_krw(my_cny * rate_cny)} 원")
         c2.metric("USD 환전보유액", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
-        c3.metric("허사장님 물품대", fmt_num(yiwu_balance), f"≈ {fmt_krw(yiwu_balance * rate_cny)} 원")
+        # ⭐ 허사장님 물품대를 CNY / USD 함께 표기하도록 변경
+        c3.metric("허사장님 물품대 (CNY / USD)", f"{fmt_num(yiwu_balance)} / {fmt_num(yiwu_balance * cny_to_usd_rate)}", f"≈ {fmt_krw(yiwu_balance * rate_cny)} 원")
         
         st.markdown("---")
 
-        # ⭐ 깔끔해진 [통화별 환전 필요액]
         st.subheader("통화별 환전 필요액")
         
         df_cny_only, df_usd_only = split_direct_data(df_d_active)
         summary_rows = []
         
         for label, s, e in periods:
-            # 1. Direct CNY (CNY 통장 소진)
             sub_cny = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)] if s and e else df_cny_only
             exp_cny = sub_cny['잔금_금액'].sum()
             
-            # 2. Direct USD (USD 통장 소진)
             sub_usd = df_usd_only[(df_usd_only['잔금_날짜'] >= s) & (df_usd_only['잔금_날짜'] <= e)] if s and e else df_usd_only
             val_pure = sub_usd[sub_usd['화폐단위'] == 'USD']['잔금_금액'].sum()
             val_conv = sub_usd[sub_usd['화폐단위'] == 'CNY']['잔금_금액'].sum() * cny_to_usd_rate
             exp_usd_direct = val_pure + val_conv
             
-            # 3. YIWU USD (물품대 초과분 -> USD 통장 소진)
             sub_yiwu = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
             exp_yiwu_cny = sub_yiwu['잔금_금액'].sum()
             yiwu_short_cny = max(exp_yiwu_cny - yiwu_balance, 0)
             yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
             
-            # 합산
             total_req_cny = exp_cny
             total_req_usd = exp_usd_direct + yiwu_req_usd
             
-            # 부족분 (환전 필요)
             final_short_cny = max(total_req_cny - my_cny, 0)
             final_short_usd = max(total_req_usd - my_usd, 0)
             
-            # KRW 뒤에 띄어쓰기를 넣어서 판다스 중복오류를 막는 마법!
             summary_rows.append({
                 "기간": label,
                 "지출예정액(CNY)": fmt_num(total_req_cny),
@@ -538,7 +519,8 @@ else:
     elif menu == "이우 (YIWU)":
         st.header("이우(YIWU) 자금 관리")
         c1, c2 = st.columns(2)
-        c1.metric("허사장님 물품대", fmt_num(yiwu_balance), f"≈ {fmt_krw(yiwu_balance * rate_cny)} 원")
+        # ⭐ 허사장님 물품대를 CNY / USD 함께 표기하도록 변경
+        c1.metric("허사장님 물품대 (CNY / USD)", f"{fmt_num(yiwu_balance)} / {fmt_num(yiwu_balance * cny_to_usd_rate)}", f"≈ {fmt_krw(yiwu_balance * rate_cny)} 원")
         c2.metric("USD 보유액", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
         
         rows = []
