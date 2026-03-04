@@ -266,18 +266,16 @@ else:
     # PAGE 1: 전체 자금 현황
     # =======================================================
     if menu == "전체 자금 현황":
-        # ⭐ 레이아웃 비율을 [7, 3]으로 조정하여 메모장이 콤팩트하게 보이도록 함
         top_col1, top_col2 = st.columns([7, 3])
         
         with top_col1:
             st.header("📊 전체 자금 현황 대시보드")
             
         with top_col2:
-            # ⭐ (직접 수정 가능) 문구 삭제!
             st.markdown("##### 💡 항목명 설명")
             st.session_state.memo_df = st.data_editor(
                 st.session_state.memo_df, 
-                use_container_width=False, # ⭐ 너비를 내용물 크기에 맞게 축소 (콤팩트하게!)
+                use_container_width=False, 
                 hide_index=True,
                 num_rows="dynamic" 
             )
@@ -479,18 +477,19 @@ else:
         st.subheader("📋 상세 내역")
         
         df_view = df_view.sort_values('잔금_날짜').copy()
-        df_view['잔금 금액(USD)'] = df_view['잔금_금액'] * cny_to_usd_rate
+        df_view['잔금 금액(KRW)'] = df_view['잔금_금액'] * rate_cny # ⭐ CNY 메뉴이므로 USD를 다시 KRW로 수정!
         
         df_view['누적_잔금(CNY)'] = df_view['잔금_금액'].cumsum()
         df_view['환전 필요액(CNY)'] = (df_view['누적_잔금(CNY)'] - my_cny).clip(lower=0) 
         df_view['환전 필요액(KRW)'] = df_view['환전 필요액(CNY)'] * rate_cny
         
-        df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(USD)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']].copy()
-        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']
+        # ⭐ 요청하신 [잔금 금액(CNY) / 잔금 금액(KRW)] 컬럼 순서 반영
+        df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']].copy()
+        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']
         
         if '잔금 날짜' in df_disp.columns: df_disp['잔금 날짜'] = df_disp['잔금 날짜'].dt.strftime('%Y-%m-%d')
         if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(fmt_num)
-        if '잔금 금액(USD)' in df_disp.columns: df_disp['잔금 금액(USD)'] = df_disp['잔금 금액(USD)'].apply(fmt_num)
+        if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
         if '환전 필요액(CNY)' in df_disp.columns: df_disp['환전 필요액(CNY)'] = df_disp['환전 필요액(CNY)'].apply(fmt_num)
         if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(KRW)'].apply(fmt_krw)
         
@@ -543,8 +542,8 @@ else:
         if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(lambda x: fmt_num(x) if x > 0 else "")
         if '잔금 금액(USD)' in df_disp.columns: df_disp['잔금 금액(USD)'] = df_disp['잔금 금액(USD)'].apply(fmt_num)
         if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
-        if '환전 필요액(USD)' in df_disp.columns: df_disp['환전 필요액(USD)'] = df_disp['환전 필요액(USD)'].apply(fmt_num)
-        if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(KRW)'].apply(fmt_krw)
+        if '환전 필요액(USD)' in df_disp.columns: df_disp['환전 필요액(USD)'] = disp_disp['환전 필요액(USD)'].apply(fmt_num)
+        if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = disp_disp['환전 필요액(KRW)'].apply(fmt_krw)
         
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
