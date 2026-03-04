@@ -249,8 +249,16 @@ else:
     df_y_active = df_y[~df_y['진행단계'].astype(str).str.contains('완료', na=False)].copy() if '진행단계' in df_y.columns else df_y.copy()
 
     dates = get_date_range(today)
-    periods = [
-        ("0. 전체 예정", None, None),
+    
+    # ⭐ 잔고 시뮬레이션을 위한 핵심 로직!
+    # 각 데이터프레임을 날짜순으로 정렬
+    df_d_active = df_d_active.sort_values('잔금_날짜')
+    df_y_active = df_y_active.sort_values('잔금_날짜')
+    
+    df_cny_only, df_usd_only = split_direct_data(df_d_active)
+
+    # 1) 전체 / 사용자지정을 제외한 고정 기간들을 먼저 정의
+    fixed_periods = [
         ("1. 이번주", dates['this_week'][0], dates['this_week'][1]),
         ("2. 다음주", dates['next_week'][0], dates['next_week'][1]),
         ("3. 이번주+다음주", dates['this_week'][0], dates['next_week'][1]),
@@ -259,8 +267,10 @@ else:
         ("6. 이번달+다음달", dates['this_plus_next_month'][0], dates['this_plus_next_month'][1]),
     ]
     
+    # 전체와 사용자 지정은 포함
+    all_periods = [("0. 전체 예정", None, None)] + fixed_periods
     if len(custom_date) == 2:
-        periods.append(("7. 사용자 지정", pd.to_datetime(custom_date[0]), pd.to_datetime(custom_date[1])))
+        all_periods.append(("7. 사용자 지정", pd.to_datetime(custom_date[0]), pd.to_datetime(custom_date[1])))
 
     # =======================================================
     # PAGE 1: 전체 자금 현황
@@ -290,10 +300,8 @@ else:
 
         st.subheader("통화별 환전 필요액")
         
-        df_cny_only, df_usd_only = split_direct_data(df_d_active)
         summary_rows = []
-        
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub_cny = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)] if s and e else df_cny_only
             exp_cny = sub_cny['잔금_금액'].sum()
             
@@ -304,14 +312,46 @@ else:
             
             sub_yiwu = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
             exp_yiwu_cny = sub_yiwu['잔금_금액'].sum()
-            yiwu_short_cny = max(exp_yiwu_cny - yiwu_balance, 0)
-            yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
             
-            total_req_cny = exp_cny
-            total_req_usd = exp_usd_direct + yiwu_req_usd
-            
-            final_short_cny = max(total_req_cny - my_cny, 0)
-            final_short_usd = max(total_req_usd - my_usd, 0)
+            # 누적 차감 시뮬레이션 적용
+            if label in ["2. 다음주", "5. 다음달"]:
+                # 다음주/다음달의 경우, '그 전까지(과거부터 직전까지)' 쓴 돈을 계산해서 현재 잔고에서 먼저 깐다.
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                
+                # 그 전까지 쓴 총액 계산
+                past_cny_sum = df_cny_only[df_cny_only['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
+                past_usd_pure = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'USD')]['잔금_금액'].sum()
+                past_usd_conv = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'CNY')]['잔금_금액'].sum() * cny_to_usd_rate
+                past_yiwu_cny = df_y_active[df_y_active['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
+                
+                # 그 전까지 쓰고 '남은 내 통장 잔고' (0보다 작아질 수 없음)
+                rem_cny = max(my_cny - past_cny_sum, 0)
+                
+                past_yiwu_short_cny = max(past_yiwu_cny - yiwu_balance, 0)
+                past_req_usd = past_usd_pure + past_usd_conv + (past_yiwu_short_cny * cny_to_usd_rate)
+                rem_usd = max(my_usd - past_req_usd, 0)
+                
+                # 이번 턴(다음주/다음달)에 나가는 이우 물품대 계산 시, 허사장님 물품대도 깎인 상태에서 출발
+                rem_yiwu_bal = max(yiwu_balance - past_yiwu_cny, 0)
+                yiwu_short_cny = max(exp_yiwu_cny - rem_yiwu_bal, 0)
+                yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
+                
+                total_req_cny = exp_cny
+                total_req_usd = exp_usd_direct + yiwu_req_usd
+                
+                final_short_cny = max(total_req_cny - rem_cny, 0)
+                final_short_usd = max(total_req_usd - rem_usd, 0)
+                
+            else:
+                # 나머지 기간(이번주, 이번달, 전체, 누적기간 등)은 내 전체 통장잔고(현재값)에서 그냥 뺌
+                yiwu_short_cny = max(exp_yiwu_cny - yiwu_balance, 0)
+                yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
+                
+                total_req_cny = exp_cny
+                total_req_usd = exp_usd_direct + yiwu_req_usd
+                
+                final_short_cny = max(total_req_cny - my_cny, 0)
+                final_short_usd = max(total_req_usd - my_usd, 0)
             
             summary_rows.append({
                 "기간": label,
@@ -334,10 +374,18 @@ else:
         with c_b: st.markdown(f"**💰 CNY 보유액:** :green[{fmt_num(my_cny)}]")
         
         rows_cny = []
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub = df_cny_only[(df_cny_only['잔금_날짜'] >= s) & (df_cny_only['잔금_날짜'] <= e)] if s and e else df_cny_only
             exp_cny = sub['잔금_금액'].sum()
-            need_cny = max(exp_cny - my_cny, 0)
+            
+            if label in ["2. 다음주", "5. 다음달"]:
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                past_cny_sum = df_cny_only[df_cny_only['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
+                rem_cny = max(my_cny - past_cny_sum, 0)
+                need_cny = max(exp_cny - rem_cny, 0)
+            else:
+                need_cny = max(exp_cny - my_cny, 0)
+                
             rows_cny.append({
                 "기간": label, 
                 "총 물품대(CNY)": fmt_num(exp_cny), 
@@ -354,12 +402,21 @@ else:
         with c_b: st.markdown(f"**💰 USD 보유액:** :green[{fmt_num(my_usd)}]")
 
         rows_usd = []
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub = df_usd_only[(df_usd_only['잔금_날짜'] >= s) & (df_usd_only['잔금_날짜'] <= e)] if s and e else df_usd_only
             val_pure = sub[sub['화폐단위'] == 'USD']['잔금_금액'].sum()
             val_conv = sub[sub['화폐단위'] == 'CNY']['잔금_금액'].sum() * cny_to_usd_rate
             exp_usd = val_pure + val_conv
-            need_usd = max(exp_usd - my_usd, 0)
+            
+            if label in ["2. 다음주", "5. 다음달"]:
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                past_usd_pure = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'USD')]['잔금_금액'].sum()
+                past_usd_conv = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'CNY')]['잔금_금액'].sum() * cny_to_usd_rate
+                rem_usd = max(my_usd - (past_usd_pure + past_usd_conv), 0)
+                need_usd = max(exp_usd - rem_usd, 0)
+            else:
+                need_usd = max(exp_usd - my_usd, 0)
+                
             rows_usd.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_usd), 
@@ -377,12 +434,28 @@ else:
         with c_b2: st.markdown(f"**💰 USD 보유액:** :green[{fmt_num(my_usd)}]")
         
         rows_yiwu = []
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
             exp_cny = sub['잔금_금액'].sum()
-            short_cny = max(exp_cny - yiwu_balance, 0)
-            short_usd = short_cny * cny_to_usd_rate
-            remit_usd = max(short_usd - my_usd, 0)
+            
+            if label in ["2. 다음주", "5. 다음달"]:
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                past_yiwu_cny = df_y_active[df_y_active['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
+                rem_yiwu_bal = max(yiwu_balance - past_yiwu_cny, 0)
+                
+                short_cny = max(exp_cny - rem_yiwu_bal, 0)
+                short_usd = short_cny * cny_to_usd_rate
+                
+                past_yiwu_short_cny = max(past_yiwu_cny - yiwu_balance, 0)
+                past_req_usd = past_yiwu_short_cny * cny_to_usd_rate
+                rem_usd = max(my_usd - past_req_usd, 0)
+                
+                remit_usd = max(short_usd - rem_usd, 0)
+            else:
+                short_cny = max(exp_cny - yiwu_balance, 0)
+                short_usd = short_cny * cny_to_usd_rate
+                remit_usd = max(short_usd - my_usd, 0)
+                
             rows_yiwu.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_cny * cny_to_usd_rate), 
@@ -459,10 +532,18 @@ else:
         df_view = df_cny_only.copy()
         
         rows = []
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub = df_view[(df_view['잔금_날짜'] >= s) & (df_view['잔금_날짜'] <= e)] if s and e else df_view
             exp_cny = sub['잔금_금액'].sum()
-            need_cny = max(exp_cny - my_cny, 0)
+            
+            if label in ["2. 다음주", "5. 다음달"]:
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                past_cny_sum = df_cny_only[df_cny_only['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
+                rem_cny = max(my_cny - past_cny_sum, 0)
+                need_cny = max(exp_cny - rem_cny, 0)
+            else:
+                need_cny = max(exp_cny - my_cny, 0)
+                
             rows.append({
                 "기간": label, 
                 "총 물품대(CNY)": fmt_num(exp_cny), 
@@ -477,13 +558,12 @@ else:
         st.subheader("📋 상세 내역")
         
         df_view = df_view.sort_values('잔금_날짜').copy()
-        df_view['잔금 금액(KRW)'] = df_view['잔금_금액'] * rate_cny # ⭐ CNY 메뉴이므로 USD를 다시 KRW로 수정!
+        df_view['잔금 금액(KRW)'] = df_view['잔금_금액'] * rate_cny
         
         df_view['누적_잔금(CNY)'] = df_view['잔금_금액'].cumsum()
         df_view['환전 필요액(CNY)'] = (df_view['누적_잔금(CNY)'] - my_cny).clip(lower=0) 
         df_view['환전 필요액(KRW)'] = df_view['환전 필요액(CNY)'] * rate_cny
         
-        # ⭐ 요청하신 [잔금 금액(CNY) / 잔금 금액(KRW)] 컬럼 순서 반영
         df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']].copy()
         df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']
         
@@ -507,12 +587,21 @@ else:
         df_view = df_usd_only.copy()
         
         rows = []
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub = df_view[(df_view['잔금_날짜'] >= s) & (df_view['잔금_날짜'] <= e)] if s and e else df_view
             val_pure = sub[sub['화폐단위'] == 'USD']['잔금_금액'].sum()
             val_conv = sub[sub['화폐단위'] == 'CNY']['잔금_금액'].sum() * cny_to_usd_rate
             exp_usd = val_pure + val_conv
-            need_usd = max(exp_usd - my_usd, 0)
+            
+            if label in ["2. 다음주", "5. 다음달"]:
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                past_usd_pure = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'USD')]['잔금_금액'].sum()
+                past_usd_conv = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'CNY')]['잔금_금액'].sum() * cny_to_usd_rate
+                rem_usd = max(my_usd - (past_usd_pure + past_usd_conv), 0)
+                need_usd = max(exp_usd - rem_usd, 0)
+            else:
+                need_usd = max(exp_usd - my_usd, 0)
+                
             rows.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_usd), 
@@ -542,8 +631,8 @@ else:
         if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(lambda x: fmt_num(x) if x > 0 else "")
         if '잔금 금액(USD)' in df_disp.columns: df_disp['잔금 금액(USD)'] = df_disp['잔금 금액(USD)'].apply(fmt_num)
         if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
-        if '환전 필요액(USD)' in df_disp.columns: df_disp['환전 필요액(USD)'] = disp_disp['환전 필요액(USD)'].apply(fmt_num)
-        if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = disp_disp['환전 필요액(KRW)'].apply(fmt_krw)
+        if '환전 필요액(USD)' in df_disp.columns: df_disp['환전 필요액(USD)'] = df_disp['환전 필요액(USD)'].apply(fmt_num)
+        if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(KRW)'].apply(fmt_krw)
         
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
@@ -559,15 +648,27 @@ else:
         c2.metric("USD 보유액", fmt_num(my_usd), f"≈ {fmt_krw(my_usd * rate_usd)} 원")
         
         rows = []
-        for label, s, e in periods:
+        for label, s, e in all_periods:
             sub = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
             exp_cny = sub['잔금_금액'].sum()
             exp_usd = exp_cny * cny_to_usd_rate
             
-            short_cny = max(exp_cny - yiwu_balance, 0)
-            short_usd = short_cny * cny_to_usd_rate
-            remit_usd = max(short_usd - my_usd, 0)
-            
+            if label in ["2. 다음주", "5. 다음달"]:
+                prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
+                past_yiwu_cny = df_y_active[df_y_active['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
+                
+                rem_yiwu_bal = max(yiwu_balance - past_yiwu_cny, 0)
+                short_cny = max(exp_cny - rem_yiwu_bal, 0)
+                short_usd = short_cny * cny_to_usd_rate
+                
+                past_yiwu_short_cny = max(past_yiwu_cny - yiwu_balance, 0)
+                rem_usd = max(my_usd - (past_yiwu_short_cny * cny_to_usd_rate), 0)
+                remit_usd = max(short_usd - rem_usd, 0)
+            else:
+                short_cny = max(exp_cny - yiwu_balance, 0)
+                short_usd = short_cny * cny_to_usd_rate
+                remit_usd = max(short_usd - my_usd, 0)
+                
             rows.append({
                 "기간": label, 
                 "총 물품대(USD)": fmt_num(exp_usd),
