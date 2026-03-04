@@ -42,6 +42,7 @@ def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
         
+        # 1. 다이렉트 시트
         if '다이렉트' in xls.sheet_names:
             df_d = pd.read_excel(xls, sheet_name='다이렉트')
             df_d.columns = df_d.columns.str.strip()
@@ -53,6 +54,7 @@ def parse_excel_data(file_bytes):
         else:
             df_d = pd.DataFrame()
 
+        # 2. YIWU 시트
         if 'YIWU' in xls.sheet_names:
             df_y = pd.read_excel(xls, sheet_name='YIWU')
             df_y.columns = df_y.columns.str.strip()
@@ -71,21 +73,39 @@ def parse_excel_data(file_bytes):
         else:
             df_y = pd.DataFrame()
 
+        # ⭐ 3. 송금내역(YIWU) 시트 로직 대폭 강화 (허사장님 물품대)
         yiwu_balance = 0.0
         df_l = pd.DataFrame()
-        target_sheet = '송금내역 (YIWU)'
-        if target_sheet not in xls.sheet_names:
-             target_sheet = next((s for s in xls.sheet_names if '송금' in s and 'YIWU' in s), target_sheet)
-        if target_sheet in xls.sheet_names:
+        
+        # 유사한 이름의 시트 찾기 (공백 등 무시)
+        target_sheet = None
+        for s_name in xls.sheet_names:
+            clean_name = s_name.replace(" ", "").upper()
+            if '송금' in clean_name and 'YIWU' in clean_name:
+                target_sheet = s_name
+                break
+        
+        if target_sheet:
             df_l = pd.read_excel(xls, sheet_name=target_sheet)
-            if '잔고' not in str(list(df_l.columns)): df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
-            df_l.columns = df_l.columns.str.strip()
-            bal_col = next((c for c in df_l.columns if '잔고' in str(c) and 'CNY' in str(c)), None)
+            
+            # 만약 첫 줄이 헤더가 아닌 경우 (병합 셀 등), 두 번째 줄을 헤더로 다시 읽기
+            if '잔고' not in str(list(df_l.columns)) and '잔고(CNY)' not in str(list(df_l.columns)):
+                 df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
+                 
+            df_l.columns = df_l.columns.astype(str).str.strip().str.replace('\n', '')
+            
+            # '잔고'라는 단어가 포함된 열을 찾아서 가장 마지막 숫자를 가져옴
+            bal_col = next((c for c in df_l.columns if '잔고' in c), None)
             if bal_col:
+                # 숫자가 있는 행만 걸러내기
                 balances = df_l[bal_col].apply(clean_currency)
-                if not balances.dropna().empty: yiwu_balance = balances.dropna().iloc[-1]
+                valid_balances = balances[balances > 0] # 0보다 큰 실제 잔고만 필터링
+                if not valid_balances.empty:
+                    yiwu_balance = valid_balances.iloc[-1] # 맨 마지막 잔고값
+            
             if '날짜' in df_l.columns: df_l['날짜'] = pd.to_datetime(df_l['날짜'], errors='coerce')
                 
+        # 4. 환전내역 시트
         df_ex = pd.DataFrame()
         if '환전내역' in xls.sheet_names:
             df_ex = pd.read_excel(xls, sheet_name='환전내역')
@@ -250,14 +270,12 @@ else:
 
     dates = get_date_range(today)
     
-    # ⭐ 잔고 시뮬레이션을 위한 핵심 로직!
     # 각 데이터프레임을 날짜순으로 정렬
     df_d_active = df_d_active.sort_values('잔금_날짜')
     df_y_active = df_y_active.sort_values('잔금_날짜')
     
     df_cny_only, df_usd_only = split_direct_data(df_d_active)
 
-    # 1) 전체 / 사용자지정을 제외한 고정 기간들을 먼저 정의
     fixed_periods = [
         ("1. 이번주", dates['this_week'][0], dates['this_week'][1]),
         ("2. 다음주", dates['next_week'][0], dates['next_week'][1]),
@@ -267,7 +285,6 @@ else:
         ("6. 이번달+다음달", dates['this_plus_next_month'][0], dates['this_plus_next_month'][1]),
     ]
     
-    # 전체와 사용자 지정은 포함
     all_periods = [("0. 전체 예정", None, None)] + fixed_periods
     if len(custom_date) == 2:
         all_periods.append(("7. 사용자 지정", pd.to_datetime(custom_date[0]), pd.to_datetime(custom_date[1])))
@@ -313,25 +330,20 @@ else:
             sub_yiwu = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
             exp_yiwu_cny = sub_yiwu['잔금_금액'].sum()
             
-            # 누적 차감 시뮬레이션 적용
             if label in ["2. 다음주", "5. 다음달"]:
-                # 다음주/다음달의 경우, '그 전까지(과거부터 직전까지)' 쓴 돈을 계산해서 현재 잔고에서 먼저 깐다.
                 prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
                 
-                # 그 전까지 쓴 총액 계산
                 past_cny_sum = df_cny_only[df_cny_only['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
                 past_usd_pure = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'USD')]['잔금_금액'].sum()
                 past_usd_conv = df_usd_only[(df_usd_only['잔금_날짜'] <= prev_e) & (df_usd_only['화폐단위'] == 'CNY')]['잔금_금액'].sum() * cny_to_usd_rate
                 past_yiwu_cny = df_y_active[df_y_active['잔금_날짜'] <= prev_e]['잔금_금액'].sum()
                 
-                # 그 전까지 쓰고 '남은 내 통장 잔고' (0보다 작아질 수 없음)
                 rem_cny = max(my_cny - past_cny_sum, 0)
                 
                 past_yiwu_short_cny = max(past_yiwu_cny - yiwu_balance, 0)
                 past_req_usd = past_usd_pure + past_usd_conv + (past_yiwu_short_cny * cny_to_usd_rate)
                 rem_usd = max(my_usd - past_req_usd, 0)
                 
-                # 이번 턴(다음주/다음달)에 나가는 이우 물품대 계산 시, 허사장님 물품대도 깎인 상태에서 출발
                 rem_yiwu_bal = max(yiwu_balance - past_yiwu_cny, 0)
                 yiwu_short_cny = max(exp_yiwu_cny - rem_yiwu_bal, 0)
                 yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
@@ -343,7 +355,6 @@ else:
                 final_short_usd = max(total_req_usd - rem_usd, 0)
                 
             else:
-                # 나머지 기간(이번주, 이번달, 전체, 누적기간 등)은 내 전체 통장잔고(현재값)에서 그냥 뺌
                 yiwu_short_cny = max(exp_yiwu_cny - yiwu_balance, 0)
                 yiwu_req_usd = yiwu_short_cny * cny_to_usd_rate
                 
