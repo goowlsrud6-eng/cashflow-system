@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import re
 import requests
 import io
+import json
+import os
 
 # -----------------------------------------------------------
 # 1. 페이지 설정 및 메모장 세션 초기화
@@ -27,6 +29,37 @@ def fmt_krw(x):
         return f"{float(x):,.0f}"
     except:
         return x
+
+# -----------------------------------------------------------
+# ⭐ [핵심 추가] 사용자 설정 자동 저장/불러오기 기능 (기억장치)
+# -----------------------------------------------------------
+SETTINGS_FILE = "settings.json"
+
+def load_settings():
+    default_settings = {
+        "target_cny_rate": 195.0,
+        "target_usd_rate": 1460.0,
+        "base_date": "2026-02-12",
+        "base_cny": 436013.34,
+        "base_usd": 62785.86
+    }
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                saved_settings = json.load(f)
+                default_settings.update(saved_settings)
+        except:
+            pass
+    return default_settings
+
+def save_settings(settings):
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=4)
+    except:
+        pass
+
+user_settings = load_settings()
 
 # -----------------------------------------------------------
 # 2. 데이터 로딩 및 전처리 (초고속 캐싱)
@@ -225,11 +258,13 @@ with st.sidebar:
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
-    # ⭐ 목표 환율 설정
+    # ⭐ 목표 환율 설정 (저장된 값 불러오기)
     st.markdown("#### 🎯 목표 환율 설정")
     col_t1, col_t2 = st.columns(2)
-    with col_t1: target_cny_rate = st.number_input("CNY 미만 알림", value=195.0, step=1.0, format="%.2f")
-    with col_t2: target_usd_rate = st.number_input("USD 미만 알림", value=1460.0, step=1.0, format="%.2f")
+    with col_t1: 
+        target_cny_rate = st.number_input("CNY 미만 알림", value=float(user_settings["target_cny_rate"]), step=1.0, format="%.2f")
+    with col_t2: 
+        target_usd_rate = st.number_input("USD 미만 알림", value=float(user_settings["target_usd_rate"]), step=1.0, format="%.2f")
 
     st.markdown("---")
     today = pd.Timestamp.now().normalize()
@@ -237,9 +272,25 @@ with st.sidebar:
 
     st.markdown("---")
     with st.expander("초기 잔고 기준점 세팅"):
-        base_date = st.date_input("기준 날짜", value=pd.to_datetime("2026-02-12"))
-        base_cny = st.number_input("초기 CNY", value=436013.34)
-        base_usd = st.number_input("초기 USD", value=62785.86)
+        # ⭐ 초기 잔고 설정도 저장된 값 불러오기
+        saved_base_date = pd.to_datetime(user_settings["base_date"]).date()
+        base_date = st.date_input("기준 날짜", value=saved_base_date)
+        base_cny = st.number_input("초기 CNY", value=float(user_settings["base_cny"]))
+        base_usd = st.number_input("초기 USD", value=float(user_settings["base_usd"]))
+
+    # ⭐ 값이 하나라도 변경되면 파일에 자동 저장!
+    if (target_cny_rate != user_settings["target_cny_rate"] or 
+        target_usd_rate != user_settings["target_usd_rate"] or
+        str(base_date) != user_settings["base_date"] or
+        base_cny != user_settings["base_cny"] or
+        base_usd != user_settings["base_usd"]):
+        
+        user_settings["target_cny_rate"] = target_cny_rate
+        user_settings["target_usd_rate"] = target_usd_rate
+        user_settings["base_date"] = str(base_date)
+        user_settings["base_cny"] = base_cny
+        user_settings["base_usd"] = base_usd
+        save_settings(user_settings)
 
 # -----------------------------------------------------------
 # 5. 화면 로직
@@ -291,30 +342,30 @@ else:
         with top_col1:
             st.header("📊 전체 자금 현황 대시보드")
             
-            # ⭐ 🚨 알림창: 괄호 안에 실시간 환율이 매핑되도록 처리
+            # ⭐ 조건부 환전 알림 메시지 (보고용 프로페셔널 톤)
             alert_cny = rate_cny < target_cny_rate
             alert_usd = rate_usd < target_usd_rate
             
             if alert_cny and alert_usd:
                 st.markdown(f"""
-                <div style='background-color: #f8f9fa; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
-                    <span style='color:#2c3e50; font-size:15px; font-weight:bold;'>
+                <div style='background-color: #fdf2f2; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
+                    <span style='color:#c0392b; font-size:15px; font-weight:bold;'>
                         🚨 [환전 알림] 현재 USD({fmt_num(rate_usd)}원) 및 CNY({fmt_num(rate_cny)}원) 환율이 모두 목표가에 도달했습니다. 환전을 검토해 주시기 바랍니다.
                     </span>
                 </div>
                 """, unsafe_allow_html=True)
             elif alert_usd:
                 st.markdown(f"""
-                <div style='background-color: #f8f9fa; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
-                    <span style='color:#2c3e50; font-size:15px; font-weight:bold;'>
+                <div style='background-color: #fdf2f2; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
+                    <span style='color:#c0392b; font-size:15px; font-weight:bold;'>
                         🚨 [환전 알림] 현재 USD 환율({fmt_num(rate_usd)}원)이 설정하신 목표가에 도달했습니다. 환전을 검토해 주시기 바랍니다.
                     </span>
                 </div>
                 """, unsafe_allow_html=True)
             elif alert_cny:
                 st.markdown(f"""
-                <div style='background-color: #f8f9fa; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
-                    <span style='color:#2c3e50; font-size:15px; font-weight:bold;'>
+                <div style='background-color: #fdf2f2; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
+                    <span style='color:#c0392b; font-size:15px; font-weight:bold;'>
                         🚨 [환전 알림] 현재 CNY 환율({fmt_num(rate_cny)}원)이 설정하신 목표가에 도달했습니다. 환전을 검토해 주시기 바랍니다.
                     </span>
                 </div>
