@@ -225,6 +225,13 @@ with st.sidebar:
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
+    # ⭐ 목표 환율 설정
+    st.markdown("#### 🎯 목표 환율 설정")
+    col_t1, col_t2 = st.columns(2)
+    with col_t1: target_cny_rate = st.number_input("CNY 미만 알림", value=195.0, step=1.0, format="%.2f")
+    with col_t2: target_usd_rate = st.number_input("USD 미만 알림", value=1460.0, step=1.0, format="%.2f")
+
+    st.markdown("---")
     today = pd.Timestamp.now().normalize()
     custom_date = st.date_input("📅 사용자 지정 기간", (today, today + timedelta(days=14)))
 
@@ -283,6 +290,35 @@ else:
         
         with top_col1:
             st.header("📊 전체 자금 현황 대시보드")
+            
+            # ⭐ 🚨 알림창: 괄호 안에 실시간 환율이 매핑되도록 처리
+            alert_cny = rate_cny < target_cny_rate
+            alert_usd = rate_usd < target_usd_rate
+            
+            if alert_cny and alert_usd:
+                st.markdown(f"""
+                <div style='background-color: #f8f9fa; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
+                    <span style='color:#2c3e50; font-size:15px; font-weight:bold;'>
+                        🚨 [환전 알림] 현재 USD({fmt_num(rate_usd)}원) 및 CNY({fmt_num(rate_cny)}원) 환율이 모두 목표가에 도달했습니다. 환전을 검토해 주시기 바랍니다.
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+            elif alert_usd:
+                st.markdown(f"""
+                <div style='background-color: #f8f9fa; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
+                    <span style='color:#2c3e50; font-size:15px; font-weight:bold;'>
+                        🚨 [환전 알림] 현재 USD 환율({fmt_num(rate_usd)}원)이 설정하신 목표가에 도달했습니다. 환전을 검토해 주시기 바랍니다.
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+            elif alert_cny:
+                st.markdown(f"""
+                <div style='background-color: #f8f9fa; border-left: 5px solid #e74c3c; padding: 12px; margin-top: -5px; margin-bottom: 15px; border-radius: 4px;'>
+                    <span style='color:#2c3e50; font-size:15px; font-weight:bold;'>
+                        🚨 [환전 알림] 현재 CNY 환율({fmt_num(rate_cny)}원)이 설정하신 목표가에 도달했습니다. 환전을 검토해 주시기 바랍니다.
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
             
         with top_col2:
             st.markdown("##### 💡 항목명 설명")
@@ -628,7 +664,6 @@ else:
         if '총 물품대(CNY)' in df_disp.columns: df_disp['총 물품대(CNY)'] = df_disp['총 물품대(CNY)'].apply(lambda x: fmt_num(x) if x > 0 else "")
         if '총 물품대(USD)' in df_disp.columns: df_disp['총 물품대(USD)'] = df_disp['총 물품대(USD)'].apply(fmt_num)
         if '총 물품대(KRW)' in df_disp.columns: df_disp['총 물품대(KRW)'] = df_disp['총 물품대(KRW)'].apply(fmt_krw)
-        # ⭐ disp_disp 오타 수정 완료!
         if '환전 필요액(USD)' in df_disp.columns: df_disp['환전 필요액(USD)'] = df_disp['환전 필요액(USD)'].apply(fmt_num)
         if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(KRW)'].apply(fmt_krw)
         
