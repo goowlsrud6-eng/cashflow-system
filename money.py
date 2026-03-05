@@ -42,7 +42,6 @@ def parse_excel_data(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
         
-        # 1. 다이렉트 시트
         if '다이렉트' in xls.sheet_names:
             df_d = pd.read_excel(xls, sheet_name='다이렉트')
             df_d.columns = df_d.columns.str.strip()
@@ -54,7 +53,6 @@ def parse_excel_data(file_bytes):
         else:
             df_d = pd.DataFrame()
 
-        # 2. YIWU 시트
         if 'YIWU' in xls.sheet_names:
             df_y = pd.read_excel(xls, sheet_name='YIWU')
             df_y.columns = df_y.columns.str.strip()
@@ -73,39 +71,22 @@ def parse_excel_data(file_bytes):
         else:
             df_y = pd.DataFrame()
 
-        # ⭐ 3. 송금내역(YIWU) 시트 로직 대폭 강화 (허사장님 물품대)
         yiwu_balance = 0.0
         df_l = pd.DataFrame()
-        
-        # 유사한 이름의 시트 찾기 (공백 등 무시)
-        target_sheet = None
-        for s_name in xls.sheet_names:
-            clean_name = s_name.replace(" ", "").upper()
-            if '송금' in clean_name and 'YIWU' in clean_name:
-                target_sheet = s_name
-                break
-        
-        if target_sheet:
+        target_sheet = '송금내역 (YIWU)'
+        if target_sheet not in xls.sheet_names:
+             target_sheet = next((s for s in xls.sheet_names if '송금' in s and 'YIWU' in s), target_sheet)
+        if target_sheet in xls.sheet_names:
             df_l = pd.read_excel(xls, sheet_name=target_sheet)
-            
-            # 만약 첫 줄이 헤더가 아닌 경우 (병합 셀 등), 두 번째 줄을 헤더로 다시 읽기
-            if '잔고' not in str(list(df_l.columns)) and '잔고(CNY)' not in str(list(df_l.columns)):
-                 df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
-                 
-            df_l.columns = df_l.columns.astype(str).str.strip().str.replace('\n', '')
-            
-            # '잔고'라는 단어가 포함된 열을 찾아서 가장 마지막 숫자를 가져옴
-            bal_col = next((c for c in df_l.columns if '잔고' in c), None)
+            if '잔고' not in str(list(df_l.columns)): df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
+            df_l.columns = df_l.columns.str.strip()
+            bal_col = next((c for c in df_l.columns if '잔고' in str(c) and 'CNY' in str(c)), None)
             if bal_col:
-                # 숫자가 있는 행만 걸러내기
                 balances = df_l[bal_col].apply(clean_currency)
-                valid_balances = balances[balances > 0] # 0보다 큰 실제 잔고만 필터링
-                if not valid_balances.empty:
-                    yiwu_balance = valid_balances.iloc[-1] # 맨 마지막 잔고값
-            
+                valid_balances = balances[balances > 0]
+                if not valid_balances.empty: yiwu_balance = valid_balances.iloc[-1]
             if '날짜' in df_l.columns: df_l['날짜'] = pd.to_datetime(df_l['날짜'], errors='coerce')
                 
-        # 4. 환전내역 시트
         df_ex = pd.DataFrame()
         if '환전내역' in xls.sheet_names:
             df_ex = pd.read_excel(xls, sheet_name='환전내역')
@@ -270,7 +251,6 @@ else:
 
     dates = get_date_range(today)
     
-    # 각 데이터프레임을 날짜순으로 정렬
     df_d_active = df_d_active.sort_values('잔금_날짜')
     df_y_active = df_y_active.sort_values('잔금_날짜')
     
@@ -575,12 +555,13 @@ else:
         df_view['환전 필요액(CNY)'] = (df_view['누적_잔금(CNY)'] - my_cny).clip(lower=0) 
         df_view['환전 필요액(KRW)'] = df_view['환전 필요액(CNY)'] * rate_cny
         
+        # ⭐ 잔금 금액 -> 총 물품대로 이름 변경
         df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금_금액', '잔금 금액(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']].copy()
-        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']
+        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '총 물품대(CNY)', '총 물품대(KRW)', '환전 필요액(CNY)', '환전 필요액(KRW)', '진행단계']
         
         if '잔금 날짜' in df_disp.columns: df_disp['잔금 날짜'] = df_disp['잔금 날짜'].dt.strftime('%Y-%m-%d')
-        if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(fmt_num)
-        if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
+        if '총 물품대(CNY)' in df_disp.columns: df_disp['총 물품대(CNY)'] = df_disp['총 물품대(CNY)'].apply(fmt_num)
+        if '총 물품대(KRW)' in df_disp.columns: df_disp['총 물품대(KRW)'] = df_disp['총 물품대(KRW)'].apply(fmt_krw)
         if '환전 필요액(CNY)' in df_disp.columns: df_disp['환전 필요액(CNY)'] = df_disp['환전 필요액(CNY)'].apply(fmt_num)
         if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(KRW)'].apply(fmt_krw)
         
@@ -635,15 +616,16 @@ else:
         df_view['환전 필요액(USD)'] = (df_view['누적_잔금(USD)'] - my_usd).clip(lower=0) 
         df_view['환전 필요액(KRW)'] = df_view['환전 필요액(USD)'] * rate_usd
         
+        # ⭐ 잔금 금액 -> 총 물품대로 이름 변경
         df_disp = df_view[['잔금_날짜', '품목', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']].copy()
-        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '잔금 금액(CNY)', '잔금 금액(USD)', '잔금 금액(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']
+        df_disp.columns = ['잔금 날짜', '상품명', '거래처', '총 물품대(CNY)', '총 물품대(USD)', '총 물품대(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']
         
         if '잔금 날짜' in df_disp.columns: df_disp['잔금 날짜'] = df_disp['잔금 날짜'].dt.strftime('%Y-%m-%d')
-        if '잔금 금액(CNY)' in df_disp.columns: df_disp['잔금 금액(CNY)'] = df_disp['잔금 금액(CNY)'].apply(lambda x: fmt_num(x) if x > 0 else "")
-        if '잔금 금액(USD)' in df_disp.columns: df_disp['잔금 금액(USD)'] = df_disp['잔금 금액(USD)'].apply(fmt_num)
-        if '잔금 금액(KRW)' in df_disp.columns: df_disp['잔금 금액(KRW)'] = df_disp['잔금 금액(KRW)'].apply(fmt_krw)
+        if '총 물품대(CNY)' in df_disp.columns: df_disp['총 물품대(CNY)'] = df_disp['총 물품대(CNY)'].apply(lambda x: fmt_num(x) if x > 0 else "")
+        if '총 물품대(USD)' in df_disp.columns: df_disp['총 물품대(USD)'] = df_disp['총 물품대(USD)'].apply(fmt_num)
+        if '총 물품대(KRW)' in df_disp.columns: df_disp['총 물품대(KRW)'] = df_disp['총 물품대(KRW)'].apply(fmt_krw)
         if '환전 필요액(USD)' in df_disp.columns: df_disp['환전 필요액(USD)'] = df_disp['환전 필요액(USD)'].apply(fmt_num)
-        if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(KRW)'].apply(fmt_krw)
+        if '환전 필요액(KRW)' in df_disp.columns: df_disp['환전 필요액(KRW)'] = disp_disp['환전 필요액(KRW)'].apply(fmt_krw)
         
         st.dataframe(df_disp, hide_index=True, use_container_width=True)
 
@@ -709,13 +691,20 @@ else:
         df_disp['환전 필요액(USD)'] = (df_disp['부족 물품대(USD)'] - my_usd).clip(lower=0)
         df_disp['환전 필요액(KRW)'] = df_disp['환전 필요액(USD)'] * rate_usd
         
+        # ⭐ 잔금 금액 -> 총 물품대로 이름 변경
         cols_to_show = ['잔금_날짜', '품목', '잔금 금액(USD)', '잔금 금액(KRW)', '부족 물품대(USD)', '부족 물품대(KRW)', '환전 필요액(USD)', '환전 필요액(KRW)', '진행단계']
         disp_final = df_disp[[c for c in cols_to_show if c in df_disp.columns]].copy()
-        disp_final.rename(columns={'잔금_날짜': '잔금 날짜', '품목': '상품명', '진행단계': '진행 단계'}, inplace=True)
+        disp_final.rename(columns={
+            '잔금_날짜': '잔금 날짜', 
+            '품목': '상품명', 
+            '진행단계': '진행 단계',
+            '잔금 금액(USD)': '총 물품대(USD)',
+            '잔금 금액(KRW)': '총 물품대(KRW)'
+        }, inplace=True)
         
         if '잔금 날짜' in disp_final.columns: disp_final['잔금 날짜'] = disp_final['잔금 날짜'].dt.strftime('%Y-%m-%d')
-        if '잔금 금액(USD)' in disp_final.columns: disp_final['잔금 금액(USD)'] = disp_final['잔금 금액(USD)'].apply(fmt_num)
-        if '잔금 금액(KRW)' in disp_final.columns: disp_final['잔금 금액(KRW)'] = disp_final['잔금 금액(KRW)'].apply(fmt_krw)
+        if '총 물품대(USD)' in disp_final.columns: disp_final['총 물품대(USD)'] = disp_final['총 물품대(USD)'].apply(fmt_num)
+        if '총 물품대(KRW)' in disp_final.columns: disp_final['총 물품대(KRW)'] = disp_final['총 물품대(KRW)'].apply(fmt_krw)
         if '부족 물품대(USD)' in disp_final.columns: disp_final['부족 물품대(USD)'] = disp_final['부족 물품대(USD)'].apply(fmt_num)
         if '부족 물품대(KRW)' in disp_final.columns: disp_final['부족 물품대(KRW)'] = disp_final['부족 물품대(KRW)'].apply(fmt_krw)
         if '환전 필요액(USD)' in disp_final.columns: disp_final['환전 필요액(USD)'] = disp_final['환전 필요액(USD)'].apply(fmt_num)
