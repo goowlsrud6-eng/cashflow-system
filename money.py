@@ -4,8 +4,19 @@ from datetime import datetime, timedelta
 import re
 import requests
 import io
-import json
-import os
+
+# ===========================================================
+# ⚙️ [사장님 맞춤 기본값 설정 공간] ⚙️
+# 대시보드가 잠들었다 깨어나도 절대 안 변하게 하려면
+# 아래 숫자들을 원하시는 최신 값으로 직접 수정해 주세요!
+# ===========================================================
+DEFAULT_TARGET_CNY = 210.0       # 🎯 CNY 목표 환율 (예: 210원)
+DEFAULT_TARGET_USD = 1460.0      # 🎯 USD 목표 환율 (예: 1450원)
+
+DEFAULT_BASE_DATE = "2026-02-12" # 🏦 초기 잔고 기준 날짜
+DEFAULT_BASE_CNY = 436013.34     # 🏦 초기 CNY 잔고
+DEFAULT_BASE_USD = 62785.86      # 🏦 초기 USD 잔고
+# ===========================================================
 
 # -----------------------------------------------------------
 # 1. 페이지 설정 및 메모장 세션 초기화
@@ -29,37 +40,6 @@ def fmt_krw(x):
         return f"{float(x):,.0f}"
     except:
         return x
-
-# -----------------------------------------------------------
-# ⭐ [핵심 추가] 사용자 설정 자동 저장/불러오기 기능 (기억장치)
-# -----------------------------------------------------------
-SETTINGS_FILE = "settings.json"
-
-def load_settings():
-    default_settings = {
-        "target_cny_rate": 195.0,
-        "target_usd_rate": 1460.0,
-        "base_date": "2026-02-12",
-        "base_cny": 436013.34,
-        "base_usd": 62785.86
-    }
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                saved_settings = json.load(f)
-                default_settings.update(saved_settings)
-        except:
-            pass
-    return default_settings
-
-def save_settings(settings):
-    try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(settings, f, ensure_ascii=False, indent=4)
-    except:
-        pass
-
-user_settings = load_settings()
 
 # -----------------------------------------------------------
 # 2. 데이터 로딩 및 전처리 (초고속 캐싱)
@@ -258,13 +238,11 @@ with st.sidebar:
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
-    # ⭐ 목표 환율 설정 (저장된 값 불러오기)
+    # ⭐ 코드 맨 위에 적어둔 사장님 맞춤값을 불러와서 표시합니다.
     st.markdown("#### 🎯 목표 환율 설정")
     col_t1, col_t2 = st.columns(2)
-    with col_t1: 
-        target_cny_rate = st.number_input("CNY 미만 알림", value=float(user_settings["target_cny_rate"]), step=1.0, format="%.2f")
-    with col_t2: 
-        target_usd_rate = st.number_input("USD 미만 알림", value=float(user_settings["target_usd_rate"]), step=1.0, format="%.2f")
+    with col_t1: target_cny_rate = st.number_input("CNY 미만 알림", value=DEFAULT_TARGET_CNY, step=1.0, format="%.2f")
+    with col_t2: target_usd_rate = st.number_input("USD 미만 알림", value=DEFAULT_TARGET_USD, step=1.0, format="%.2f")
 
     st.markdown("---")
     today = pd.Timestamp.now().normalize()
@@ -272,25 +250,10 @@ with st.sidebar:
 
     st.markdown("---")
     with st.expander("초기 잔고 기준점 세팅"):
-        # ⭐ 초기 잔고 설정도 저장된 값 불러오기
-        saved_base_date = pd.to_datetime(user_settings["base_date"]).date()
-        base_date = st.date_input("기준 날짜", value=saved_base_date)
-        base_cny = st.number_input("초기 CNY", value=float(user_settings["base_cny"]))
-        base_usd = st.number_input("초기 USD", value=float(user_settings["base_usd"]))
-
-    # ⭐ 값이 하나라도 변경되면 파일에 자동 저장!
-    if (target_cny_rate != user_settings["target_cny_rate"] or 
-        target_usd_rate != user_settings["target_usd_rate"] or
-        str(base_date) != user_settings["base_date"] or
-        base_cny != user_settings["base_cny"] or
-        base_usd != user_settings["base_usd"]):
-        
-        user_settings["target_cny_rate"] = target_cny_rate
-        user_settings["target_usd_rate"] = target_usd_rate
-        user_settings["base_date"] = str(base_date)
-        user_settings["base_cny"] = base_cny
-        user_settings["base_usd"] = base_usd
-        save_settings(user_settings)
+        # ⭐ 코드 맨 위에 적어둔 사장님 맞춤값을 불러와서 표시합니다.
+        base_date = st.date_input("기준 날짜", value=pd.to_datetime(DEFAULT_BASE_DATE))
+        base_cny = st.number_input("초기 CNY", value=DEFAULT_BASE_CNY)
+        base_usd = st.number_input("초기 USD", value=DEFAULT_BASE_USD)
 
 # -----------------------------------------------------------
 # 5. 화면 로직
@@ -342,7 +305,7 @@ else:
         with top_col1:
             st.header("📊 전체 자금 현황 대시보드")
             
-            # ⭐ 조건부 환전 알림 메시지 (보고용 프로페셔널 톤)
+            # ⭐ 조건부 환전 알림 메시지
             alert_cny = rate_cny < target_cny_rate
             alert_usd = rate_usd < target_usd_rate
             
