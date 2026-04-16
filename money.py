@@ -13,9 +13,9 @@ import io
 DEFAULT_TARGET_CNY = 210.0       # 🎯 CNY 목표 환율 (예: 210원)
 DEFAULT_TARGET_USD = 1460.0      # 🎯 USD 목표 환율 (예: 1450원)
 
-DEFAULT_BASE_DATE = "2026-04-14" # 🏦 초기 잔고 기준 날짜
-DEFAULT_BASE_CNY = 2347715.41     # 🏦 초기 CNY 잔고
-DEFAULT_BASE_USD = 124957.51      # 🏦 초기 USD 잔고
+DEFAULT_BASE_DATE = "2026-03-31" # 🏦 초기 잔고 기준 날짜
+DEFAULT_BASE_CNY = 190075.92     # 🏦 초기 CNY 잔고
+DEFAULT_BASE_USD = 125012.67     # 🏦 초기 USD 잔고
 # ===========================================================
 
 # -----------------------------------------------------------
@@ -238,7 +238,6 @@ with st.sidebar:
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
-    # ⭐ 코드 맨 위에 적어둔 사장님 맞춤값을 불러와서 표시합니다.
     st.markdown("#### 🎯 목표 환율 설정")
     col_t1, col_t2 = st.columns(2)
     with col_t1: target_cny_rate = st.number_input("CNY 미만 알림", value=DEFAULT_TARGET_CNY, step=1.0, format="%.2f")
@@ -250,7 +249,6 @@ with st.sidebar:
 
     st.markdown("---")
     with st.expander("초기 잔고 기준점 세팅"):
-        # ⭐ 코드 맨 위에 적어둔 사장님 맞춤값을 불러와서 표시합니다.
         base_date = st.date_input("기준 날짜", value=pd.to_datetime(DEFAULT_BASE_DATE))
         base_cny = st.number_input("초기 CNY", value=DEFAULT_BASE_CNY)
         base_usd = st.number_input("초기 USD", value=DEFAULT_BASE_USD)
@@ -305,7 +303,6 @@ else:
         with top_col1:
             st.header("📊 전체 자금 현황 대시보드")
             
-            # ⭐ 조건부 환전 알림 메시지
             alert_cny = rate_cny < target_cny_rate
             alert_usd = rate_usd < target_usd_rate
             
@@ -366,6 +363,9 @@ else:
             sub_yiwu = df_y_active[(df_y_active['잔금_날짜'] >= s) & (df_y_active['잔금_날짜'] <= e)] if s and e else df_y_active
             exp_yiwu_cny = sub_yiwu['잔금_금액'].sum()
             
+            # ⭐ 총 물품대(USD) 누적 계산 (다이렉트 USD 총액 + 이우 USD 총액)
+            gross_usd = exp_usd_direct + (exp_yiwu_cny * cny_to_usd_rate)
+
             if label in ["2. 다음주", "5. 다음달"]:
                 prev_e = dates['this_week'][1] if label == "2. 다음주" else dates['this_month'][1]
                 
@@ -406,6 +406,8 @@ else:
                 "총 물품대(KRW) ": fmt_krw(total_req_cny * rate_cny), 
                 "환전 필요액(CNY)": fmt_num(final_short_cny),
                 "환전 필요액(KRW) ": fmt_krw(final_short_cny * rate_cny), 
+                "총 물품대(USD)": fmt_num(gross_usd),
+                "총 물품대(KRW)": fmt_krw(gross_usd * rate_usd),
                 "부족 물품대(USD)": fmt_num(total_req_usd),
                 "부족 물품대(KRW)": fmt_krw(total_req_usd * rate_usd),
                 "환전 필요액(USD)": fmt_num(final_short_usd),
@@ -718,11 +720,11 @@ else:
                 
             rows.append({
                 "기간": label, 
-                "총 물품대(USD)": fmt_num(exp_usd),
-                "총 물품대(KRW)": fmt_krw(exp_usd * rate_usd), 
-                "부족 물품대(USD)": fmt_num(short_usd),
+                "총 물품대(USD)": fmt_num(exp_cny * cny_to_usd_rate), 
+                "총 물품대(KRW)": fmt_krw(exp_cny * rate_cny),
+                "부족 물품대(USD)": fmt_num(short_usd), 
                 "부족 물품대(KRW)": fmt_krw(short_usd * rate_usd),
-                "환전 필요액(USD)": fmt_num(remit_usd),
+                "환전 필요액(USD)": fmt_num(remit_usd), 
                 "환전 필요액(KRW)": fmt_krw(remit_usd * rate_usd)
             })
         st.subheader("📅 기간별 이우(YIWU) 자금 계획")
