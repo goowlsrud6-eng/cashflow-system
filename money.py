@@ -195,7 +195,30 @@ def get_live_exchange_rates():
         "Referer": "https://m.stock.naver.com/"
     }
 
-    # 1차: 네이버 JSON API
+    # 1차: 네이버 모바일 페이지
+    try:
+        def get_naver_mobile_rate(code):
+            url = f"https://m.stock.naver.com/marketindex/exchange/{code}"
+            res = requests.get(url, headers=headers, timeout=5)
+            res.raise_for_status()
+
+            match = re.search(r'([\d,]+\.\d+)\s*KRW', res.text)
+            if match:
+                return float(match.group(1).replace(",", ""))
+
+            return None
+
+        usd_rate = get_naver_mobile_rate("FX_USDKRW")
+        cny_rate = get_naver_mobile_rate("FX_CNYKRW")
+
+        if cny_rate and usd_rate:
+            save_last_rates(cny_rate, usd_rate, "네이버 모바일")
+            return cny_rate, usd_rate, "네이버 모바일", False
+
+    except:
+        pass
+
+    # 2차: 네이버 JSON API
     try:
         def get_naver_json_rate(code):
             url = f"https://api.stock.naver.com/marketindex/exchange/{code}/prices?page=1&pageSize=1"
@@ -212,13 +235,13 @@ def get_live_exchange_rates():
         cny_rate = get_naver_json_rate("FX_CNYKRW")
 
         if cny_rate and usd_rate:
-            save_last_rates(cny_rate, usd_rate, "네이버")
-            return cny_rate, usd_rate, "네이버", False
+            save_last_rates(cny_rate, usd_rate, "네이버 API")
+            return cny_rate, usd_rate, "네이버 API", False
 
     except:
         pass
 
-    # 2차: 네이버 HTML
+    # 3차: 네이버 기존 HTML
     try:
         url = "https://finance.naver.com/marketindex/exchangeList.naver"
         res = requests.get(url, headers=headers, timeout=5)
@@ -231,13 +254,13 @@ def get_live_exchange_rates():
         cny_rate = float(c_match.group(1).replace(",", "")) if c_match else None
 
         if cny_rate and usd_rate:
-            save_last_rates(cny_rate, usd_rate, "네이버 보조")
-            return cny_rate, usd_rate, "네이버 보조", False
+            save_last_rates(cny_rate, usd_rate, "네이버 HTML")
+            return cny_rate, usd_rate, "네이버 HTML", False
 
     except:
         pass
 
-    # 3차: Investing.com
+    # 4차: Investing.com
     try:
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
         usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
@@ -254,7 +277,7 @@ def get_live_exchange_rates():
     except:
         pass
 
-    # 4차: 마지막 정상 환율
+    # 5차: 마지막 정상 환율
     last_cny, last_usd, last_source, saved_at = load_last_rates()
     if last_cny and last_usd:
         return last_cny, last_usd, f"마지막 정상 환율 ({last_source}, {saved_at})", True
