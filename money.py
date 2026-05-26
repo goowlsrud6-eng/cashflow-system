@@ -330,18 +330,32 @@ with st.sidebar:
         
     st.markdown("---")
     
-    live_cny, live_usd = get_live_exchange_rates()
+    live_cny, live_usd, rate_source, is_stale_rate = get_live_exchange_rates()
+
+    if live_cny is None or live_usd is None:
+        st.warning("실시간 환율을 불러오지 못했습니다. 환율을 직접 입력해 주세요.")
+        live_cny = DEFAULT_TARGET_CNY
+        live_usd = DEFAULT_TARGET_USD
+    elif is_stale_rate:
+        st.warning(f"실시간 환율 조회 실패로 {rate_source}을 사용 중입니다.")
+    else:
+        st.caption(f"환율 출처: {rate_source}")
     
     col_r1, col_r2 = st.columns(2)
-    with col_r1: rate_cny = st.number_input("1 CNY (원)", value=live_cny, format="%.2f")
-    with col_r2: rate_usd = st.number_input("1 USD (원)", value=live_usd, format="%.2f")
+    with col_r1:
+        rate_cny = st.number_input("1 CNY (원)", value=float(live_cny), format="%.2f")
+    with col_r2:
+        rate_usd = st.number_input("1 USD (원)", value=float(live_usd), format="%.2f")
+
     cny_to_usd_rate = rate_cny / rate_usd if rate_usd > 0 else 0
 
     st.markdown("---")
     st.markdown("#### 🎯 목표 환율 설정")
     col_t1, col_t2 = st.columns(2)
-    with col_t1: target_cny_rate = st.number_input("CNY 미만 알림", value=DEFAULT_TARGET_CNY, step=1.0, format="%.2f")
-    with col_t2: target_usd_rate = st.number_input("USD 미만 알림", value=DEFAULT_TARGET_USD, step=1.0, format="%.2f")
+    with col_t1:
+        target_cny_rate = st.number_input("CNY 미만 알림", value=DEFAULT_TARGET_CNY, step=1.0, format="%.2f")
+    with col_t2:
+        target_usd_rate = st.number_input("USD 미만 알림", value=DEFAULT_TARGET_USD, step=1.0, format="%.2f")
 
     st.markdown("---")
     today = pd.Timestamp.now().normalize()
@@ -393,7 +407,7 @@ else:
     all_periods = [("0. 전체 예정", None, None)] + fixed_periods
     if len(custom_date) == 2:
         all_periods.append(("7. 사용자 지정", pd.to_datetime(custom_date[0]), pd.to_datetime(custom_date[1])))
-
+        
     # =======================================================
     # PAGE 1: 전체 자금 현황
     # =======================================================
