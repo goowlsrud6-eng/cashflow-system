@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import re
 import requests
 import io
+import json
+import os
 
 # ===========================================================
 # ⚙️ [사장님 맞춤 기본값 설정 공간] ⚙️
@@ -47,8 +49,10 @@ def fmt_krw(x):
 def clean_currency(x):
     if isinstance(x, str):
         clean_str = re.sub(r'[^\d.-]', '', x)
-        try: return float(clean_str) if clean_str else 0.0
-        except: return 0.0
+        try:
+            return float(clean_str) if clean_str else 0.0
+        except:
+            return 0.0
     return float(x) if pd.notnull(x) else 0.0
 
 def parse_excel_data(file_bytes):
@@ -58,18 +62,24 @@ def parse_excel_data(file_bytes):
         if '다이렉트' in xls.sheet_names:
             df_d = pd.read_excel(xls, sheet_name='다이렉트')
             df_d.columns = df_d.columns.str.strip()
-            if '잔금_금액' in df_d.columns: df_d['잔금_금액'] = df_d['잔금_금액'].apply(clean_currency).fillna(0)
-            if '잔금_날짜' in df_d.columns: df_d['잔금_날짜'] = pd.to_datetime(df_d['잔금_날짜'], errors='coerce')
-            if '실지급_날짜' in df_d.columns: df_d['실지급_날짜'] = pd.to_datetime(df_d['실지급_날짜'], errors='coerce')
-            if '화폐단위' in df_d.columns: df_d['화폐단위'] = df_d['화폐단위'].astype(str).str.upper().str.strip()
-            if '구분' not in df_d.columns: df_d['구분'] = 'Direct'
+            if '잔금_금액' in df_d.columns:
+                df_d['잔금_금액'] = df_d['잔금_금액'].apply(clean_currency).fillna(0)
+            if '잔금_날짜' in df_d.columns:
+                df_d['잔금_날짜'] = pd.to_datetime(df_d['잔금_날짜'], errors='coerce')
+            if '실지급_날짜' in df_d.columns:
+                df_d['실지급_날짜'] = pd.to_datetime(df_d['실지급_날짜'], errors='coerce')
+            if '화폐단위' in df_d.columns:
+                df_d['화폐단위'] = df_d['화폐단위'].astype(str).str.upper().str.strip()
+            if '구분' not in df_d.columns:
+                df_d['구분'] = 'Direct'
         else:
             df_d = pd.DataFrame()
 
         if 'YIWU' in xls.sheet_names:
             df_y = pd.read_excel(xls, sheet_name='YIWU')
             df_y.columns = df_y.columns.str.strip()
-            if '잔금' in df_y.columns and '잔금_금액' not in df_y.columns: df_y.rename(columns={'잔금': '잔금_금액'}, inplace=True)
+            if '잔금' in df_y.columns and '잔금_금액' not in df_y.columns:
+                df_y.rename(columns={'잔금': '잔금_금액'}, inplace=True)
             if '잔금_금액' in df_y.columns:
                 df_y['잔금_금액'] = df_y['잔금_금액'].apply(clean_currency).fillna(0)
                 comm_col = next((c for c in df_y.columns if '수수료' in str(c)), None)
@@ -77,10 +87,12 @@ def parse_excel_data(file_bytes):
                     def apply_fee(row):
                         val = row['잔금_금액']
                         status = str(row[comm_col]).strip()
-                        if '별도' in status: return val * 1.1
+                        if '별도' in status:
+                            return val * 1.1
                         return val
                     df_y['잔금_금액'] = df_y.apply(apply_fee, axis=1)
-            if '잔금_날짜' in df_y.columns: df_y['잔금_날짜'] = pd.to_datetime(df_y['잔금_날짜'], errors='coerce')
+            if '잔금_날짜' in df_y.columns:
+                df_y['잔금_날짜'] = pd.to_datetime(df_y['잔금_날짜'], errors='coerce')
         else:
             df_y = pd.DataFrame()
 
@@ -96,7 +108,7 @@ def parse_excel_data(file_bytes):
         if target_sheet:
             df_l = pd.read_excel(xls, sheet_name=target_sheet)
             if '잔고' not in str(list(df_l.columns)) and '잔고(CNY)' not in str(list(df_l.columns)):
-                 df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
+                df_l = pd.read_excel(xls, sheet_name=target_sheet, header=1)
             df_l.columns = df_l.columns.astype(str).str.strip().str.replace('\n', '')
             bal_col = next((c for c in df_l.columns if '잔고' in c), None)
             if bal_col:
@@ -104,19 +116,24 @@ def parse_excel_data(file_bytes):
                 valid_balances = balances[balances > 0] 
                 if not valid_balances.empty:
                     yiwu_balance = valid_balances.iloc[-1] 
-            if '날짜' in df_l.columns: df_l['날짜'] = pd.to_datetime(df_l['날짜'], errors='coerce')
+            if '날짜' in df_l.columns:
+                df_l['날짜'] = pd.to_datetime(df_l['날짜'], errors='coerce')
                 
         df_ex = pd.DataFrame()
         if '환전내역' in xls.sheet_names:
             df_ex = pd.read_excel(xls, sheet_name='환전내역')
             df_ex.columns = df_ex.columns.str.strip()
             date_col = next((c for c in df_ex.columns if '날짜' in str(c) or '일자' in str(c)), None)
-            if date_col: df_ex['날짜'] = pd.to_datetime(df_ex[date_col], errors='coerce')
+            if date_col:
+                df_ex['날짜'] = pd.to_datetime(df_ex[date_col], errors='coerce')
             curr_col = next((c for c in df_ex.columns if '화폐' in str(c) or '통화' in str(c) or '구분' in str(c)), None)
-            if curr_col: df_ex.rename(columns={curr_col: '화폐'}, inplace=True)
+            if curr_col:
+                df_ex.rename(columns={curr_col: '화폐'}, inplace=True)
             amt_col = next((c for c in df_ex.columns if '환전' in str(c) and '원화' not in str(c)), None)
-            if not amt_col: amt_col = next((c for c in df_ex.columns if '외화' in str(c)), None)
-            if amt_col: df_ex['환전금액'] = df_ex[amt_col].apply(clean_currency).fillna(0)
+            if not amt_col:
+                amt_col = next((c for c in df_ex.columns if '외화' in str(c)), None)
+            if amt_col:
+                df_ex['환전금액'] = df_ex[amt_col].apply(clean_currency).fillna(0)
             
         return df_d, df_y, yiwu_balance, df_l, df_ex
     except Exception as e:
@@ -126,44 +143,123 @@ def parse_excel_data(file_bytes):
 @st.cache_data(ttl=600, show_spinner="☁️ 구글 드라이브에서 데이터를 불러오는 중입니다...")
 def get_drive_data(url):
     file_id_match = re.search(r'/d/([a-zA-Z0-9_-]+)', url) or re.search(r'id=([a-zA-Z0-9_-]+)', url)
-    if not file_id_match: return None
+    if not file_id_match:
+        return None
     file_id = file_id_match.group(1)
     download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
     try:
-        response = requests.get(download_url)
+        response = requests.get(download_url, timeout=20)
         if response.status_code == 200:
             return parse_excel_data(io.BytesIO(response.content))
     except Exception as e:
         st.error(f"구글 드라이브 연동 실패: {e}")
     return None
 
-@st.cache_data(ttl=3600, show_spinner="💱 실시간 환율 정보를 불러오는 중입니다...")
+RATE_CACHE_FILE = "last_exchange_rates.json"
+
+def save_last_rates(cny_rate, usd_rate, source):
+    data = {
+        "cny": cny_rate,
+        "usd": usd_rate,
+        "source": source,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    try:
+        with open(RATE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except:
+        pass
+
+def load_last_rates():
+    if not os.path.exists(RATE_CACHE_FILE):
+        return None, None, None, None
+
+    try:
+        with open(RATE_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        return (
+            float(data.get("cny")),
+            float(data.get("usd")),
+            data.get("source"),
+            data.get("saved_at")
+        )
+    except:
+        return None, None, None, None
+
+@st.cache_data(ttl=600, show_spinner="💱 실시간 환율 정보를 불러오는 중입니다...")
 def get_live_exchange_rates():
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    cny_rate, usd_rate = None, None
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://m.stock.naver.com/"
+    }
+
+    # 1차: 네이버 JSON API
+    try:
+        def get_naver_json_rate(code):
+            url = f"https://api.stock.naver.com/marketindex/exchange/{code}/prices?page=1&pageSize=1"
+            res = requests.get(url, headers=headers, timeout=5)
+            res.raise_for_status()
+            data = res.json()
+
+            if not data:
+                return None
+
+            return float(str(data[0]["closePrice"]).replace(",", ""))
+
+        usd_rate = get_naver_json_rate("FX_USDKRW")
+        cny_rate = get_naver_json_rate("FX_CNYKRW")
+
+        if cny_rate and usd_rate:
+            save_last_rates(cny_rate, usd_rate, "네이버")
+            return cny_rate, usd_rate, "네이버", False
+
+    except:
+        pass
+
+    # 2차: 네이버 HTML
+    try:
+        url = "https://finance.naver.com/marketindex/exchangeList.naver"
+        res = requests.get(url, headers=headers, timeout=5)
+        res.encoding = "euc-kr"
+
+        u_match = re.search(r'미국 USD.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
+        c_match = re.search(r'중국 CNY.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
+
+        usd_rate = float(u_match.group(1).replace(",", "")) if u_match else None
+        cny_rate = float(c_match.group(1).replace(",", "")) if c_match else None
+
+        if cny_rate and usd_rate:
+            save_last_rates(cny_rate, usd_rate, "네이버 보조")
+            return cny_rate, usd_rate, "네이버 보조", False
+
+    except:
+        pass
+
+    # 3차: Investing.com
     try:
         usd_res = requests.get("https://kr.investing.com/currencies/usd-krw", headers=headers, timeout=5)
         usd_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', usd_res.text)
-        if usd_match: usd_rate = float(usd_match.group(1).replace(',', ''))
-        
+        usd_rate = float(usd_match.group(1).replace(",", "")) if usd_match else None
+
         cny_res = requests.get("https://kr.investing.com/currencies/cny-krw", headers=headers, timeout=5)
         cny_match = re.search(r'data-test="instrument-price-last"[^>]*>([\d,.]+)<', cny_res.text)
-        if cny_match: cny_rate = float(cny_match.group(1).replace(',', ''))
-    except: pass
+        cny_rate = float(cny_match.group(1).replace(",", "")) if cny_match else None
 
-    if not cny_rate or not usd_rate:
-        try:
-            url = "https://finance.naver.com/marketindex/exchangeList.naver"
-            res = requests.get(url, headers=headers, timeout=5)
-            res.encoding = 'euc-kr'
-            if not usd_rate:
-                u_match = re.search(r'미국 USD.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
-                if u_match: usd_rate = float(u_match.group(1).replace(',', ''))
-            if not cny_rate:
-                c_match = re.search(r'중국 CNY.*?<td class="sale">([\d,.]+)</td>', res.text, re.DOTALL)
-                if c_match: cny_rate = float(c_match.group(1).replace(',', ''))
-        except: pass
-    return cny_rate or 195.0, usd_rate or 1400.0
+        if cny_rate and usd_rate:
+            save_last_rates(cny_rate, usd_rate, "Investing.com")
+            return cny_rate, usd_rate, "Investing.com", False
+
+    except:
+        pass
+
+    # 4차: 마지막 정상 환율
+    last_cny, last_usd, last_source, saved_at = load_last_rates()
+    if last_cny and last_usd:
+        return last_cny, last_usd, f"마지막 정상 환율 ({last_source}, {saved_at})", True
+
+    return None, None, "조회 실패", True
 
 def calculate_realtime_balances(df_d, df_ex, df_l, base_date, base_cny, base_usd):
     cny_bal = base_cny
@@ -174,8 +270,10 @@ def calculate_realtime_balances(df_d, df_ex, df_l, base_date, base_cny, base_usd
         for _, row in new_ex.iterrows():
             amt = clean_currency(row.get('환전금액', 0))
             curr = str(row.get('화폐', '')).upper()
-            if 'CNY' in curr: cny_bal += amt
-            elif 'USD' in curr: usd_bal += amt
+            if 'CNY' in curr:
+                cny_bal += amt
+            elif 'USD' in curr:
+                usd_bal += amt
 
     if not df_d.empty and '실지급_날짜' in df_d.columns:
         df_d_paid = df_d[(df_d['실지급_날짜'] > base_date) & (df_d['진행단계'].astype(str).str.contains('완료', na=False))]
@@ -188,8 +286,10 @@ def calculate_realtime_balances(df_d, df_ex, df_l, base_date, base_cny, base_usd
             if 'USD' in gubun and 'CNY' in curr and amt_usd_actual > 0:
                 usd_bal -= amt_usd_actual
             else:
-                if 'USD' in curr: usd_bal -= amt_paid
-                elif 'CNY' in curr: cny_bal -= amt_paid
+                if 'USD' in curr:
+                    usd_bal -= amt_paid
+                elif 'CNY' in curr:
+                    cny_bal -= amt_paid
 
     if not df_l.empty and '날짜' in df_l.columns:
         df_l_paid = df_l[(df_l['날짜'] > base_date) & (df_l['구분'].astype(str).str.contains('송금', na=False))]
