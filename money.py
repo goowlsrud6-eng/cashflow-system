@@ -112,8 +112,10 @@ def parse_excel_data(file_bytes):
             df_l.columns = df_l.columns.astype(str).str.strip().str.replace('\n', '')
             bal_col = next((c for c in df_l.columns if '잔고' in c), None)
             if bal_col:
-                balances = df_l[bal_col].apply(clean_currency)
-                valid_balances = balances[balances > 0] 
+                raw_balances = df_l[bal_col]
+                balances = raw_balances.apply(clean_currency)
+                valid_mask = raw_balances.notna() & raw_balances.astype(str).str.strip().ne("")
+                valid_balances = balances[valid_mask]
                 if not valid_balances.empty:
                     yiwu_balance = valid_balances.iloc[-1] 
             if '날짜' in df_l.columns:
